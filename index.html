@@ -754,7 +754,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
   <div class="filters" id="filters-bar">
     <div class="filter-row">
       <span class="filter-label">SEARCH:</span>
-      <input type="search" class="filter-input" id="filter-search" placeholder="Name or ID, e.g. DR123 or wild 35" style="width:260px" oninput="setSearch(this.value)">
+      <input type="search" class="filter-input" id="filter-search" placeholder="Name, nickname or ID, e.g. DR123 or wild 35" style="width:260px" oninput="setSearch(this.value)">
     </div>
     <div class="filter-row">
       <span class="filter-label">CATEGORY:</span>
@@ -1494,7 +1494,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.28 – New species, categories & breedable flag';
+const APP_VERSION  = 'v0.29 – Herd search & safer CSV import';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 6;
 
@@ -3977,7 +3977,7 @@ function renderHerd() {
   if (filterSearch) {
     const terms = filterSearch.split(/\s+/);
     list = list.filter(a => {
-      const hay = `${a.name || ''} ${a.spId ? formatSpId(a.sp, a.spId) : ''}`.toLowerCase();
+      const hay = `${a.name || ''} ${a.nickname || ''} ${a.spId ? formatSpId(a.sp, a.spId) : ''}`.toLowerCase();
       return terms.every(t => hay.includes(t));
     });
   }

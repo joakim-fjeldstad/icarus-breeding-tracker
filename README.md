@@ -16,7 +16,7 @@ A free, open-source herd tracker and breeding planner for the survival game [Ica
 
 The easiest way to use the app is directly in your browser — nothing to download or update:
 
-**https://rnksekmeth.github.io/icarus-breeding-tracker**
+**https://joakim-fjeldstad.github.io/icarus-breeding-tracker**
 
 The web version is always up to date with the latest features. Your data is saved to a local JSON file on your own computer using the File System Access API — nothing is sent to any server.
 
@@ -91,12 +91,14 @@ Shows all your animals in a sortable, filterable table. Key features:
 
 - **Sort** by any column — click a header once to sort, again to reverse
 - **Filter** by species, status, sex, bloodline, phenotype, and minimum total score
+- **Search** by name, nickname or ID (e.g. `DR123`, `wild vig4`); every word must match, and an active search includes Dead and Station animals
 - **Change status inline** — each row has a status dropdown; no need to open Edit Animal
 - **Edit** an animal with the edit button; a **Cancel** button lets you exit without saving changes
 - **⭐ Favorite** — click the star button on any row to mark an animal as a favourite; favourited animals are never suggested for culling by the pair optimizer but can still be moved to reserve or taken out of rotation
 - **Nicknames** — if an animal has a nickname set, the nickname is shown in bold and the original generated name appears dimly beside it
 - **Click any row** to open the **Animal Viewer** side panel (see below)
 - **🪦 Show Dead** / **🛸 Show Station** toggles to include or exclude those animals from the view
+- **🛸 Station** and **🪦 Dead** status pills show those animals even when the matching toggle is off
 - **⚡ Optimize Pairs** button in the section header — opens the pair optimizer for all species (see Breeding Pairs)
 
 </details>
@@ -248,7 +250,7 @@ If you prefer to keep a local copy (useful for offline play or if you want a spe
 
 ### Option A — Download the file directly
 
-1. Go to the [repository on GitHub](https://github.com/rnksekmeth/icarus-breeding-tracker)
+1. Go to the [repository on GitHub](https://github.com/joakim-fjeldstad/icarus-breeding-tracker)
 2. Click `index.html` in the file list
 3. Click the **download icon (⬇)** in the top right of the file view
 4. Save it to a permanent local folder, e.g. `E:\Icarus\BreedingTracker\index.html`
@@ -259,7 +261,7 @@ If you prefer to keep a local copy (useful for offline play or if you want a spe
 ### Option B — Clone with Git
 
 ```
-git clone https://github.com/rnksekmeth/icarus-breeding-tracker.git
+git clone https://github.com/joakim-fjeldstad/icarus-breeding-tracker.git
 ```
 
 Pull updates with `git pull` whenever a new version is released.
@@ -271,9 +273,9 @@ Pull updates with `git pull` whenever a new version is released.
 Use the **⚙ Settings** tab inside the app for direct links to submit bug reports and feature requests on GitHub. A free GitHub account is required to post, but anyone can view existing issues.
 
 Direct links:
-- 🐛 [Report a Bug](https://github.com/rnksekmeth/icarus-breeding-tracker/issues/new?labels=bug)
-- ✨ [Feature Request](https://github.com/rnksekmeth/icarus-breeding-tracker/issues/new?labels=enhancement)
-- 📋 [View All Issues](https://github.com/rnksekmeth/icarus-breeding-tracker/issues)
+- 🐛 [Report a Bug](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=bug)
+- ✨ [Feature Request](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=enhancement)
+- 📋 [View All Issues](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues)
 
 ---
 
