@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.29 – Herd search & safer CSV import
+**2026-10-04**
+
+Search, Dead pill, Station fix and CSV import contributed by @D40G in #3.
+
+### My Herd
+- **Search box** — matches name, nickname and ID, case-insensitive; every word must match, and an active search includes Dead and Station animals
+- **Station pill fixed** — the 🛸 Station pill showed an empty list because Station animals were hidden before the status filter ran; Station and Dead pills now override the hide toggles
+- **🪦 Dead status pill** — Dead animals no longer need the Show Dead toggle to be found
+- **Clearer empty state** — says no animals match when the herd has animals but the filters or search exclude them all
+
+### CSV Import
+- **No duplicates on re-import** — animals already in the herd are skipped and counted in the toast
+- **Keeps the CSV's own IDs** — e.g. DR123 stays 123 unless the ID is taken by a different animal
+- **Proper CSV parsing** — quoted fields, embedded commas and newlines, CRLF and BOM
+- **Validation** — rows with unknown species or no bloodline are skipped, invalid status falls back to ?, sex is limited to M/F
+
+### Docs
+- Links updated after the repository moved to joakim-fjeldstad
+
+---
+
 ## v0.28b – Species filter pills fix
 **2026-04-14**
 
