@@ -754,7 +754,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
   <div class="filters" id="filters-bar">
     <div class="filter-row">
       <span class="filter-label">SEARCH:</span>
-      <input type="search" class="filter-input" id="filter-search" placeholder="Name, nickname or ID, e.g. DR123 or wild 35" style="width:260px" oninput="setSearch(this.value)">
+      <input type="search" class="filter-input" id="filter-search" autocomplete="off" placeholder="Name, nickname or ID, e.g. DR123 or wild 35" style="width:260px" oninput="setSearch(this.value)">
     </div>
     <div class="filter-row">
       <span class="filter-label">CATEGORY:</span>
@@ -1281,7 +1281,7 @@ function resetFormUI() {
 function pairOptionLabel(a, sp) {
   const dn         = displayName(a);
   const origSuffix = a.nickname ? ` \u00b7 ${$h(a.name)}` : '';
-  return `${dn}${origSuffix} (${getTotal(a.stats, sp || a.sp)})${a.status === 'Temp' ? ' T' : ''}`;
+  return `${$h(dn)}${origSuffix} (${getTotal(a.stats, sp || a.sp)})${a.status === 'Temp' ? ' T' : ''}`;
 }
 
 /**
@@ -1301,7 +1301,7 @@ function renderPairUpgradeRow(best, weak, sex, sp) {
     <span class="upg-name">${$h(displayName(best))}${best.status === 'Temp' ? ' T' : ''}</span>
     <span class="upg-total">${getTotal(best.stats, sp)}</span>
     <span class="upg-delta ${delta < 0 ? 'neg' : ''}">${delta > 0 ? '+' + delta : delta === 0 ? '=' : delta}</span>
-    <span class="upg-action ${delta > 0 ? 'good' : delta < 0 ? 'neg' : 'ok'}">${delta > 0 ? 'swap ' + displayName(weak) : delta === 0 ? '= equal' : 'no upgrade'}</span>
+    <span class="upg-action ${delta > 0 ? 'good' : delta < 0 ? 'neg' : 'ok'}">${delta > 0 ? 'swap ' + $h(displayName(weak)) : delta === 0 ? '= equal' : 'no upgrade'}</span>
   </div>`;
 }
 
@@ -3977,7 +3977,7 @@ function renderHerd() {
   if (filterSearch) {
     const terms = filterSearch.split(/\s+/);
     list = list.filter(a => {
-      const hay = `${a.name || ''} ${a.nickname || ''} ${a.spId ? formatSpId(a.sp, a.spId) : ''}`.toLowerCase();
+      const hay = `${a.name || ''} ${a.nickname || ''} ${a.spId ? formatSpId(a.sp, a.spId) + ' ' + getShort(a.sp) + a.spId : ''}`.toLowerCase();
       return terms.every(t => hay.includes(t));
     });
   }
@@ -3993,9 +3993,9 @@ function renderHerd() {
 
   if (!list.length) {
     tbody.innerHTML = '';
-    empty.innerHTML = animals.length
+    empty.textContent = animals.length
       ? 'No animals match the current filters or search.'
-      : 'No animals yet &#x2014; add some on the New Animal tab!';
+      : 'No animals yet \u2014 add some on the New Animal tab!';
     empty.style.display = 'block'; return;
   }
   empty.style.display = 'none';
@@ -5146,7 +5146,7 @@ function renderNodeHTML(node, showInh) {
   return `<div class="lin-node">
     <div class="lin-header ${node.depth===0?'root':''}">
       <span class="lin-sex">${sex}</span>
-      <span class="lin-name ${!node.inHerd && node.name ? 'missing' : ''}">${node.name || '-- unknown --'}${idStr}</span>
+      <span class="lin-name ${!node.inHerd && node.name ? 'missing' : ''}">${node.name ? $h(node.name) : '-- unknown --'}${idStr}</span>
       ${a ? `<span class="lin-total">${dispT}/${maxT3}</span>` : ''}
       ${a ? `<span class="lin-bl" style="color:${blCol}">${$h(a.bl)}</span>` : ''}
       ${inHerdTag}
@@ -5243,13 +5243,14 @@ function renderLineage() {
 // ── EXPORT / IMPORT ──────────────────────────────────────────────
 function exportCSV() {
   const h = ['spId','name','species','sex','bloodline','phenotype','gen','parent1','parent2']
-    .concat(STATS).concat(['total','status','notes']);
+    .concat(STATS).concat(['total','status','notes','nickname','favorite','isBred','level']);
   const rows = animals.map(a => [
     a.spId ? formatSpId(a.sp, a.spId) : '',
     a.name, a.sp, a.sex, a.bl, a.ph || '', a.gen || 1, a.p1 || '', a.p2 || ''
   ].concat(STATS.map(s => a.stats[s] || 0))
-   .concat([getTotal(a.stats, a.sp), a.status || '', (a.notes || '').replace(/,/g, ';')]));
-  const csv = [h, ...rows].map(r => r.join(',')).join('\n');
+   .concat([getTotal(a.stats, a.sp), a.status || '', a.notes || '',
+            a.nickname || '', a.favorite ? 1 : '', a.isBred ? 1 : '', a.level || '']));
+  const csv = [h, ...rows].map(r => r.map(csvField).join(',')).join('\n');
   const blob = new Blob([csv], { type:'text/csv' });
   const url  = URL.createObjectURL(blob);
   const el   = document.createElement('a');
@@ -5258,24 +5259,32 @@ function exportCSV() {
   showToast('CSV exported!');
 }
 
-/** Minimal RFC-4180 CSV parser: handles quoted fields, embedded commas/newlines, CRLF and BOM. */
+/** Quote one CSV field (RFC 4180). A leading = + - @ gets a ' so spreadsheets don't run it as a formula. */
+function csvField(v) {
+  let t = String(v ?? '');
+  if (/^[=+\-@]/.test(t)) t = "'" + t;
+  return '"' + t.replace(/"/g, '""') + '"';
+}
+
+/** Minimal RFC-4180 CSV parser: handles quoted fields, embedded commas/newlines, CRLF and BOM.
+ *  A quote only opens a quoted field at the start of a field, so older unquoted exports with a stray " still parse. */
 function parseCSVText(text) {
   text = text.replace(/^\uFEFF/, '');
-  const rows = []; let row = [], cur = '', q = false;
+  const rows = []; let row = [], cur = '', q = false, fieldStart = true;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) {
       if (c === '"' && text[i+1] === '"') { cur += '"'; i++; }
       else if (c === '"') q = false;
       else cur += c;
-    } else if (c === '"') q = true;
-    else if (c === ',') { row.push(cur); cur = ''; }
+    } else if (c === '"' && fieldStart) { q = true; fieldStart = false; }
+    else if (c === ',') { row.push(cur); cur = ''; fieldStart = true; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i+1] === '\n') i++;
-      row.push(cur); cur = '';
+      row.push(cur); cur = ''; fieldStart = true;
       if (row.some(v => v.trim() !== '')) rows.push(row);
       row = [];
-    } else cur += c;
+    } else { cur += c; fieldStart = false; }
   }
   row.push(cur);
   if (row.some(v => v.trim() !== '')) rows.push(row);
@@ -5285,6 +5294,7 @@ function parseCSVText(text) {
 function importCSV(e) {
   const file = e.target.files[0];
   if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('CSV is too large (max 5 MB)'); e.target.value = ''; return; }
   const reader = new FileReader();
   reader.onload = ev => {
     const rows = parseCSVText(ev.target.result);
@@ -5296,41 +5306,65 @@ function importCSV(e) {
     const seen = new Map(animals.map(a => [`${a.sp}#${a.spId}`, a.name]));
     // Reserve every ID already used (existing herd + this file) so auto-assigned IDs never collide
     animals.forEach(a => { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, (a.spId || 0) + 1); });
+    const isSpecies = sp => Object.hasOwn(SPECIES_DATA, sp);
+    const parseId = (v, sp) => {
+      const m = v.match(/^([A-Za-z]+)0*(\d+)$/);
+      const n = m ? parseInt(m[2]) : 0;
+      return (m && n > 0 && m[1].toUpperCase() === getShort(sp)) ? n : null;
+    };
+    const iSp = header.indexOf('species'), iId = header.indexOf('spId');
     rows.slice(1).forEach(cols => {
-      const _sp = (rows[0].map(h => h.trim()).indexOf('species')), _id = rows[0].map(h => h.trim()).indexOf('spId');
-      const _m = ((cols[_id] || '').trim()).match(/^([A-Za-z]+)0*(\d+)$/);
-      if (_m && SPECIES_DATA[(cols[_sp] || '').trim()]) { const sh = getShort((cols[_sp] || '').trim()); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, parseInt(_m[2]) + 1); }
+      const sp = (cols[iSp] || '').trim();
+      if (!isSpecies(sp)) return;
+      const n = parseId((cols[iId] || '').trim(), sp);
+      if (n !== null) { const sh = getShort(sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, n + 1); }
     });
     rows.slice(1).forEach(cols => {
-      const get = k => { const i = header.indexOf(k); return i >= 0 ? (cols[i] || '').trim() : ''; };
+      // Same length limits as the JSON load path; a leading ' added by exportCSV is removed again
+      const get = (k, max = 200) => {
+        const i = header.indexOf(k);
+        const v = i >= 0 ? (cols[i] || '').trim() : '';
+        return _sanitizeStr(/^'[=+\-@]/.test(v) ? v.slice(1) : v, max);
+      };
       const stats = {};
-      STATS.forEach(s => { stats[s] = parseInt(get(s)) || 0; });
+      STATS.forEach(s => { stats[s] = Math.max(0, Math.min(10, parseInt(get(s)) || 0)); });
       const sp = get('species');
-      if (!SPECIES_DATA[sp] || !get('bloodline')) { invalid++; return; }
-      // Names double as parent links, so an existing animal with this exact name is the same animal
-      if (get('name') && preNames.has(`${sp}|${get('name')}`)) { dupes++; return; }
+      if (!isSpecies(sp) || !get('bloodline')) { invalid++; return; }
+      let name = get('name');
+      // Names double as parent links, so an animal with this exact name (in the herd or earlier in this file) is the same animal
+      if (name && preNames.has(`${sp}|${name}`)) { dupes++; return; }
 
       // Keep the CSV's own ID (e.g. "DR123" -> 123) when it matches the species and is free
-      const m = get('spId').match(/^([A-Za-z]+)0*(\d+)$/);
-      let spId = (m && m[1].toUpperCase() === getShort(sp)) ? parseInt(m[2]) : null;
+      const csvId = parseId(get('spId'), sp);
+      let spId = csvId;
       if (spId !== null && seen.has(`${sp}#${spId}`)) {
         // Same ID + same name = this animal is already in the herd; same ID but a different animal = give it a fresh ID
-        if (seen.get(`${sp}#${spId}`) === get('name')) { dupes++; return; }
+        if (seen.get(`${sp}#${spId}`) === name) { dupes++; return; }
         spId = null;
       }
       if (spId === null) spId = getNextSpId(sp);
-      seen.set(`${sp}#${spId}`, get('name'));
+      // A reassigned ID must not leave the old ID at the start of the name, or parent links could point at another animal
+      if (csvId !== null && spId !== csvId && name.startsWith(formatSpId(sp, csvId))) {
+        name = formatSpId(sp, spId) + name.slice(formatSpId(sp, csvId).length);
+      }
 
       const sex    = get('sex').toUpperCase();
+      const sexOk  = (sex === 'M' || sex === 'F') ? sex : '';
       const status = STATUS_LIST.includes(get('status')) ? get('status') : '?';
+      if (!name) name = computeName(sp, sexOk, get('bloodline'), get('phenotype'), stats, spId);
+      seen.set(`${sp}#${spId}`, name);
+      preNames.add(`${sp}|${name}`);
+      const level = parseInt(get('level'));
       animals.push({
         id: Date.now() + Math.random(),
-        spId, sp, sex: (sex === 'M' || sex === 'F') ? sex : '',
+        spId, sp, sex: sexOk,
         bl: get('bloodline'), ph: get('phenotype'),
         gen: parseInt(get('gen')) || 1, p1: get('parent1'), p2: get('parent2'),
         stats, total: getTotal(stats, sp),
-        name: get('name') || computeName(sp, sex, get('bloodline'), get('phenotype'), stats),
-        status, notes: get('notes')
+        name, nickname: get('nickname'),
+        favorite: get('favorite') === '1', isBred: get('isBred') === '1',
+        ...(level > 0 ? { level: Math.min(50, level) } : {}),
+        status, notes: get('notes', 500)
       });
       count++;
     });
