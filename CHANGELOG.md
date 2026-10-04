@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.29b – CSV round-trip & name escaping fixes
+**2026-10-04**
+
+Fixes from code and security review of v0.29.
+
+### CSV Export
+- **All fields quoted** — names and notes with commas, quotes or line breaks now survive export and re-import
+- **Nickname, favourite, bred flag and level exported** — previously lost on every round-trip
+- **Formula guard** — values starting with = + - @ get a leading ' so spreadsheets don't run them
+
+### Fixes
+- **Security: escaped animal and parent names** in the lineage tree and pair upgrade text (HTML in a name or parent field could run script)
+- **Import robustness** — a stray " no longer merges rows, imported text gets the same length limits as saved files, 5 MB file cap, only real species names accepted, ID 0 rejected
+- **Import consistency** — duplicate names within one file are caught, a reassigned ID is also updated in the name, generated names include the ID
+- **Search** — unpadded IDs match (dr3 finds DR03), and the browser no longer restores a stale search value
+
+---
+
 ## v0.29 – Herd search & safer CSV import
 **2026-10-04**
 
@@ -20,17 +38,6 @@ Search, Dead pill, Station fix and CSV import contributed by @D40G in #3.
 - **Keeps the CSV's own IDs** — e.g. DR123 stays 123 unless the ID is taken by a different animal
 - **Proper CSV parsing** — quoted fields, embedded commas and newlines, CRLF and BOM
 - **Validation** — rows with unknown species or no bloodline are skipped, invalid status falls back to ?, sex is limited to M/F
-
-### CSV Export
-- **All fields quoted** — names and notes with commas, quotes or line breaks now survive export and re-import
-- **Nickname, favourite, bred flag and level exported** — previously lost on every round-trip
-- **Formula guard** — values starting with = + - @ get a leading ' so spreadsheets don't run them
-
-### Fixes from review
-- **Security: escaped animal and parent names** in the lineage tree and pair upgrade text (HTML in a name or parent field could run script)
-- **Import robustness** — a stray " no longer merges rows, imported text gets the same length limits as saved files, 5 MB file cap, only real species names accepted, ID 0 rejected
-- **Import consistency** — duplicate names within one file are caught, a reassigned ID is also updated in the name, generated names include the ID
-- **Search** — unpadded IDs match (dr3 finds DR03), and the browser no longer restores a stale search value
 
 ### Docs
 - Links updated after the repository moved to joakim-fjeldstad
