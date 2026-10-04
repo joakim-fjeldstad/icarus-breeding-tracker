@@ -753,6 +753,10 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
   </div>
   <div class="filters" id="filters-bar">
     <div class="filter-row">
+      <span class="filter-label">SEARCH:</span>
+      <input type="search" class="filter-input" id="filter-search" placeholder="Name or ID, e.g. DR123 or wild 35" style="width:260px" oninput="setSearch(this.value)">
+    </div>
+    <div class="filter-row">
       <span class="filter-label">CATEGORY:</span>
       <button class="filter-btn active" data-filter-type="category" onclick="setFilter('category','all',this)">All</button>
       <button class="filter-btn" data-filter-type="category" onclick="setFilter('category','Mount',this)">🐴 Mounts</button>
@@ -771,6 +775,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
       <button class="filter-btn" data-filter-type="status" onclick="setFilter('status','Reserve',this)">🔶 Reserve</button>
       <button class="filter-btn" data-filter-type="status" onclick="setFilter('status','Station',this)">🛸 Station</button>
       <button class="filter-btn" data-filter-type="status" onclick="setFilter('status','Discard',this)">🗑️ Discard</button>
+      <button class="filter-btn" data-filter-type="status" onclick="setFilter('status','Dead',this)">🪦 Dead</button>
     </div>
     <div class="filter-row">
       <span class="filter-label">SEX:</span>
@@ -1185,7 +1190,7 @@ let cardWidths   = {};   // { [sp]: 1 | 2 } — 1=normal, 2=double-wide
 let nextSpAid = {};       // per-species sequential counters { DR:1, SR:1, ... }
 let sortCol = 'total', sortAsc = false;
 let filterSpecies = 'all', filterStatus = 'all', filterSex = 'all', filterCategory = 'all';
-let filterBloodline = 'all', filterPhenotype = 'all', filterMinTotal = 0;
+let filterBloodline = 'all', filterPhenotype = 'all', filterMinTotal = 0, filterSearch = '';
 let showDead = false, showStation = false;
 let editingId = null;
 const collapsedPairSpecies  = new Set(); // in-memory; resets on reload
@@ -3829,6 +3834,11 @@ function setFilter(type, val, btn) {
   renderHerd();
 }
 
+function setSearch(val) {
+  filterSearch = (val || '').trim().toLowerCase();
+  renderHerd();
+}
+
 function setMinTotal(val) {
   filterMinTotal = parseInt(val) || 0;
   renderHerd();
@@ -3912,10 +3922,16 @@ function renderHerd() {
   const empty = $id('herd-empty');
   let list = animals.slice();
 
+  // Picking a status pill (e.g. 🛸 Station) must override the Show Dead / Show Station toggles,
+  // otherwise those animals are stripped out before the status filter runs and the list is empty.
+  // Searching by name likewise looks at everything, so you can always find a specific animal.
+  const _showDead    = showDead    || filterStatus === 'Dead'    || !!filterSearch;
+  const _showStation = showStation || filterStatus === 'Station' || !!filterSearch;
+
   // ── Build dynamic bloodline + phenotype filter pills ─────────────
   const baseAnimals = animals.filter(a =>
-    (showDead    || a.status !== 'Dead') &&
-    (showStation || a.status !== 'Station')
+    (_showDead    || a.status !== 'Dead') &&
+    (_showStation || a.status !== 'Station')
   );
   const buildDynamicPills = (containerId, filterType, currentVal, getVal, getLabel) => {
     const container = $id(containerId);
@@ -3949,8 +3965,8 @@ function renderHerd() {
   })();
 
   // ── Apply filters ─────────────────────────────────────────────────
-  if (!showDead)     list = list.filter(a => a.status !== 'Dead');
-  if (!showStation)  list = list.filter(a => a.status !== 'Station');
+  if (!_showDead)     list = list.filter(a => a.status !== 'Dead');
+  if (!_showStation)  list = list.filter(a => a.status !== 'Station');
   if (filterCategory  !== 'all') list = list.filter(a => (SPECIES_DATA[a.sp]?.category || '') === filterCategory);
   if (filterSpecies   !== 'all') list = list.filter(a => a.sp === filterSpecies);
   if (filterStatus    !== 'all') list = list.filter(a => a.status === filterStatus);
@@ -3958,6 +3974,13 @@ function renderHerd() {
   if (filterBloodline !== 'all') list = list.filter(a => a.bl === filterBloodline);
   if (filterPhenotype !== 'all') list = list.filter(a => (a.ph ? getPhenoFilterLabel(a.sp, a.ph) : null) === filterPhenotype);
   if (filterMinTotal  > 0)       list = list.filter(a => getTotal(a.stats, a.sp) >= filterMinTotal);
+  if (filterSearch) {
+    const terms = filterSearch.split(/\s+/);
+    list = list.filter(a => {
+      const hay = `${a.name || ''} ${a.spId ? formatSpId(a.sp, a.spId) : ''}`.toLowerCase();
+      return terms.every(t => hay.includes(t));
+    });
+  }
 
   updateSortArrows();
 
@@ -3966,9 +3989,15 @@ function renderHerd() {
     return (av < bv ? -1 : av > bv ? 1 : 0) * (sortAsc ? 1 : -1);
   });
 
-  $id('herd-count').textContent = `${list.length} / ${animals.filter(a => (showDead || a.status !== 'Dead') && (showStation || a.status !== 'Station')).length} animals`;
+  $id('herd-count').textContent = `${list.length} / ${animals.filter(a => (_showDead || a.status !== 'Dead') && (_showStation || a.status !== 'Station')).length} animals`;
 
-  if (!list.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  if (!list.length) {
+    tbody.innerHTML = '';
+    empty.innerHTML = animals.length
+      ? 'No animals match the current filters or search.'
+      : 'No animals yet &#x2014; add some on the New Animal tab!';
+    empty.style.display = 'block'; return;
+  }
   empty.style.display = 'none';
 
   tbody.innerHTML = list.map(a => {
@@ -5229,33 +5258,84 @@ function exportCSV() {
   showToast('CSV exported!');
 }
 
+/** Minimal RFC-4180 CSV parser: handles quoted fields, embedded commas/newlines, CRLF and BOM. */
+function parseCSVText(text) {
+  text = text.replace(/^\uFEFF/, '');
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i+1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i+1] === '\n') i++;
+      row.push(cur); cur = '';
+      if (row.some(v => v.trim() !== '')) rows.push(row);
+      row = [];
+    } else cur += c;
+  }
+  row.push(cur);
+  if (row.some(v => v.trim() !== '')) rows.push(row);
+  return rows;
+}
+
 function importCSV(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = ev => {
-    const lines  = ev.target.result.trim().split('\n');
-    const header = lines[0].split(',');
-    let count = 0;
-    lines.slice(1).forEach(line => {
-      const cols = line.split(',');
-      const get  = k => { const i = header.indexOf(k); return i >= 0 ? (cols[i] || '').trim() : ''; };
+    const rows = parseCSVText(ev.target.result);
+    if (rows.length < 2) { showToast('CSV is empty or unreadable'); return; }
+    const header = rows[0].map(h => h.trim());
+    let count = 0, dupes = 0, invalid = 0;
+    // Existing animals, keyed by species + ID, so re-importing the same file doesn't duplicate them
+    const preNames = new Set(animals.map(a => `${a.sp}|${a.name}`)); // herd as it was before this import
+    const seen = new Map(animals.map(a => [`${a.sp}#${a.spId}`, a.name]));
+    // Reserve every ID already used (existing herd + this file) so auto-assigned IDs never collide
+    animals.forEach(a => { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, (a.spId || 0) + 1); });
+    rows.slice(1).forEach(cols => {
+      const _sp = (rows[0].map(h => h.trim()).indexOf('species')), _id = rows[0].map(h => h.trim()).indexOf('spId');
+      const _m = ((cols[_id] || '').trim()).match(/^([A-Za-z]+)0*(\d+)$/);
+      if (_m && SPECIES_DATA[(cols[_sp] || '').trim()]) { const sh = getShort((cols[_sp] || '').trim()); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, parseInt(_m[2]) + 1); }
+    });
+    rows.slice(1).forEach(cols => {
+      const get = k => { const i = header.indexOf(k); return i >= 0 ? (cols[i] || '').trim() : ''; };
       const stats = {};
       STATS.forEach(s => { stats[s] = parseInt(get(s)) || 0; });
       const sp = get('species');
-      const animal = {
+      if (!SPECIES_DATA[sp] || !get('bloodline')) { invalid++; return; }
+      // Names double as parent links, so an existing animal with this exact name is the same animal
+      if (get('name') && preNames.has(`${sp}|${get('name')}`)) { dupes++; return; }
+
+      // Keep the CSV's own ID (e.g. "DR123" -> 123) when it matches the species and is free
+      const m = get('spId').match(/^([A-Za-z]+)0*(\d+)$/);
+      let spId = (m && m[1].toUpperCase() === getShort(sp)) ? parseInt(m[2]) : null;
+      if (spId !== null && seen.has(`${sp}#${spId}`)) {
+        // Same ID + same name = this animal is already in the herd; same ID but a different animal = give it a fresh ID
+        if (seen.get(`${sp}#${spId}`) === get('name')) { dupes++; return; }
+        spId = null;
+      }
+      if (spId === null) spId = getNextSpId(sp);
+      seen.set(`${sp}#${spId}`, get('name'));
+
+      const sex    = get('sex').toUpperCase();
+      const status = STATUS_LIST.includes(get('status')) ? get('status') : '?';
+      animals.push({
         id: Date.now() + Math.random(),
-        spId: getNextSpId(sp),
-        sp, sex: get('sex'), bl: get('bloodline'), ph: get('phenotype'),
+        spId, sp, sex: (sex === 'M' || sex === 'F') ? sex : '',
+        bl: get('bloodline'), ph: get('phenotype'),
         gen: parseInt(get('gen')) || 1, p1: get('parent1'), p2: get('parent2'),
         stats, total: getTotal(stats, sp),
-        name: get('name') || computeName(sp, get('sex'), get('bloodline'), get('phenotype'), stats),
-        status: get('status') || '?', notes: get('notes')
-      };
-      if (animal.sp && animal.bl) { animals.push(animal); count++; }
+        name: get('name') || computeName(sp, sex, get('bloodline'), get('phenotype'), stats),
+        status, notes: get('notes')
+      });
+      count++;
     });
     saveAndRefreshFull();
-    showToast(`Imported ${count} animals`);
+    showToast(`Imported ${count} animals` + (dupes ? `, skipped ${dupes} already in herd` : '') + (invalid ? `, ${invalid} invalid rows ignored` : ''));
   };
   reader.readAsText(file);
   e.target.value = '';
