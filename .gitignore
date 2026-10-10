@@ -1,0 +1,10 @@
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Tooling
+node_modules/
+
+# Cloud-sync temporary files
+.tmp.driveupload/
