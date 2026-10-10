@@ -259,6 +259,8 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 .goals-card.collapsed{padding-bottom:10px;}
 .goals-card.collapsed .goals-card-body{display:none;}
 .goals-card.collapsed h3{margin-bottom:0;}
+.goals-card-error{border-color:#c0392b;}
+.goals-card-error p{color:#e74c3c;font-size:12px;line-height:1.5;}
 .goals-card h3{font-size:13px;color:var(--acc);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .goals-shortcode{font-size:11px;background:var(--card);border:1px solid var(--bdr);color:#aaa;padding:1px 7px;border-radius:4px;font-family:monospace;font-weight:bold;}
 .goals-section{margin-bottom:14px;}
@@ -1494,7 +1496,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.29b – CSV round-trip & name escaping fixes';
+const APP_VERSION  = 'v0.29c – Goals tab negative-star fix';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 6;
 
@@ -2757,7 +2759,7 @@ function renderSuggestions(sp) {
       html += `<div class="suggestion-row">
         <span class="sug-badge" style="color:#e74c3c">${STATUS_ICON[animal.status] || ''} ${animal.sex === 'M' ? '♂' : '♀'} ${tot}</span>
         <div class="sug-animal"><span class="view-name-link" onclick="viewAnimal(${animal.id})">${$h(animal.name)}</span><br>
-          <span class="sug-reason" style="color:#e74c3c">⚠ ${traitWarning} — use as Temp until an offspring exceeds these stats without the trait · avoid pairing with same-${blW < 0 ? 'bloodline' : 'phenotype'} animal</span>
+          <span class="sug-reason" style="color:#e74c3c">⚠ ${traitWarning} — use as Temp until an offspring exceeds these stats without the trait · avoid pairing with same-${blScore < 0 ? 'bloodline' : 'phenotype'} animal</span>
         </div>
       </div>`;
     });
@@ -2847,183 +2849,206 @@ function renderGoals() {
       hdr.textContent = CATEGORY_LABELS_G[cat] || cat;
       grid.appendChild(hdr);
     }
-    const goals = goalsMap[sp];
-    const n = pairCounts[sp] || cfg.defaultPairs;
-    const card = document.createElement('div');
-    const isWide = cardWidths[sp] === 2;
-    const isGoalCardCollapsed = collapsedGoalCards.has(sp);
-    card.className = 'goals-card' + (isWide ? ' span-2' : '') + (isGoalCardCollapsed ? ' collapsed' : '');
-    card.draggable = true;
-    card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', sp); e.dataTransfer.effectAllowed = 'move'; });
-    card.addEventListener('dragover',  e => { e.preventDefault(); card.style.outline = '2px dashed var(--acc)'; });
-    card.addEventListener('dragleave', () => card.style.outline = '');
-    card.addEventListener('drop', e => { e.preventDefault(); card.style.outline = ''; const from = e.dataTransfer.getData('text/plain'); reorderSpecies(from, sp); });
-
-    // ── Breed-out stat options (used inline in card.innerHTML below) ──
-    const boOpts = STATS.map(s =>
-      `<option value="${s}"${goals.breedOutStat === s ? ' selected' : ''}>${s}</option>`).join('');
-
-    // ── Species goals (replaces per-pair goals) ──
-    const speciesGoalRows = (goals.goals || []).map((g, i) => {
-      const blOpts = ['',...BLOODLINES].map(b =>
-        `<option value="${b}"${g.bl === b ? ' selected' : ''}>${b || '-- any bloodline --'}</option>`).join('');
-      const phOpts = `<option value="">-- any phenotype --</option>` +
-        cfg.phenotypes.map(p => `<option value="${p.label}"${g.ph === p.label ? ' selected' : ''}>${p.label}</option>`).join('');
-      return `<div class="goal-pair-row">
-        <span class="goal-pair-label">Goal ${i+1}</span>
-        <select onchange="updateSpeciesGoal('${$esc(sp)}',${i},'bl',this.value)">${blOpts}</select>
-        <select onchange="updateSpeciesGoal('${$esc(sp)}',${i},'ph',this.value)">${phOpts}</select>
-        <button class="goal-remove-btn" onclick="removeSpeciesGoal('${$esc(sp)}',${i})" title="Remove this goal">×</button>
-      </div>`;
-    }).join('') + `<button class="goal-add-btn" onclick="addSpeciesGoal('${$esc(sp)}')">+ Add Goal</button>`;
-
-    // ── Helper: 6-button star row (neg ★★★ | pos ★★★) ──
-    const makeStars6 = (w, onClickFn) => {
-      const neg = [3,2,1].map(n => {
-        const on = w <= -n;
-        return `<button class="star-btn neg ${on?'on':''}" onclick="${onClickFn(w===-n?0:-n)}">${on?'★':'☆'}</button>`;
-      }).join('');
-      const pos = [1,2,3].map(n => {
-        const on = w >= n;
-        return `<button class="star-btn ${on?'on':''}" onclick="${onClickFn(w===n?0:n)}">${on?'★':'☆'}</button>`;
-      }).join('');
-      return `<div class="star-group">${neg}<span class="star-sep"></span>${pos}</div>`;
-    };
-
-    // ── Phenotype weights with rarity colors ──
-    const phenoRows = cfg.phenotypes.map((p, pi) => {
-      const w = goals.phenoWeights[p.label] ?? 0;
-      const rarity = RARITY_FROM_WEIGHT(p.weight);
-      const col = RARITY_COLOR[rarity];
-      const rarityBadge = `<span style="color:${col};font-size:10px;margin-left:5px">${RARITY_LABEL[rarity]}</span>`;
-      const pDisp = pi === 0 ? p.label : `P${pi} ${p.label}`;
-      const labelCol = w < 0 ? '#e74c3c' : w > 0 ? '' : '';
-      const stars = makeStars6(w, v => `updatePhenoWeight('${$esc(sp)}',${pi},${v})`);
-      return `<div class="weight-row">
-        <span class="weight-label ${w?'wlit':'wdim'}" style="${labelCol?`color:${labelCol}`:''}">
-          ${pDisp}${rarityBadge}${w<0?` <span style="color:#e74c3c;font-size:10px">(avoid)</span>`:''}
-        </span>
-        ${stars}
-      </div>`;
-    }).join('');
-
-    // ── Bloodline weights ──
-    const blRows = BLOODLINES.map((bl, bi) => {
-      const w = goals.blPriority[bl] ?? 0;
-      const blCol = BLOODLINE_COLOR[bl] || '#aaa';
-      const stars = makeStars6(w, v => `updateBlPriority('${$esc(sp)}',${bi},${v})`);
-      return `<div class="weight-row">
-        <span class="weight-label ${w?'wlit':'wdim'}" style="${w<0?'color:#e74c3c':w>0?`color:${blCol}`:''}">
-          ${bl}${w<0?' <span style="color:#e74c3c;font-size:10px">(breed out)</span>':''}
-        </span>
-        ${stars}
-      </div>`;
-    }).join('');
-
-    // ── Phenotype sightings ──
-    // Count directly from animals[] so dead animals are included (status filter: exclude only Discard)
-    const spKey = sp.replace(/[^a-zA-Z0-9]/g, '_');
-    const spAllAnimals = animals.filter(a => a.sp === sp && a.status !== 'Discard');
-    const phCountMap = {};
-    spAllAnimals.forEach(a => {
-      const key = a.ph || cfg.phenotypes[0]?.label || '';
-      if (!phCountMap[key]) phCountMap[key] = { tamed: 0, bred: 0 };
-      if (a.isBred) phCountMap[key].bred++; else phCountMap[key].tamed++;
-    });
-    // Single P0-P7 radar; full card width, sqrt-scaled counts
-    const phSightingRadar = `<canvas id="sph_radar_${spKey}" width="280" height="220" class="ph-sight-radar"></canvas>`;
-
-    // ── Bloodline sightings ──
-    const blCountMap = {};
-    spAllAnimals.forEach(a => {
-      if (!a.bl) return;
-      if (!blCountMap[a.bl]) blCountMap[a.bl] = { tamed: 0, bred: 0 };
-      if (a.isBred) blCountMap[a.bl].bred++; else blCountMap[a.bl].tamed++;
-    });
-    const blSightingRows = BLOODLINES.map(bl => {
-      const s = blCountMap[bl];
-      if (!s) return '';
-      const blCol2 = BLOODLINE_COLOR[bl] || '#aaa';
-      return `<div class="sighting-row">
-        <span class="sighting-name" style="color:${blCol2}">${bl}</span>
-        <span class="sighting-tamed" title="Tamed from wild">🌿 ${s.tamed}</span>
-        <span class="sighting-bred"  title="Born from breeding">🧬 ${s.bred}</span>
-      </div>`;
-    }).join('') || `<div style="color:var(--dim);font-size:11px;padding:4px 0">No bloodline sightings recorded yet.</div>`;
-
-    const gsHdr = (secId, label) => {
-      const c = isGSecCollapsed(sp, secId);
-      return `<div class="goals-section-hdr" onclick="toggleGoalSection('${$esc(sp)}','${secId}')"><span class="gs-arrow">${c?'▶':'▼'}</span>${label}</div>`;
-    };
-    const gsBody = (secId, content) =>
-      `<div class="gs-body${isGSecCollapsed(sp, secId)?' collapsed':''}">${content}</div>`;
-
-    card.innerHTML = `
-      <h3>
-        <span class="card-drag-handle" title="Drag to reorder">⠿</span>
-        <span class="species-dot" style="background:${cfg.color}"></span>${sp}
-        <span class="goals-shortcode">${cfg.short}</span>
-        <button class="card-width-btn" onclick="toggleCardWidth('${$esc(sp)}')" title="Toggle Narrow/Wide">${isWide ? '◧ Narrow' : '▣ Wide'}</button>
-        <button class="pairs-collapse-btn" onclick="toggleGoalCard('${$esc(sp)}')" style="margin-left:auto">${isGoalCardCollapsed ? '▶ Show' : '▼ Hide'}</button>
-      </h3>
-      <div class="goals-card-body">
-        <div class="goals-section">
-          ${gsHdr('breedout','Breed-Out Stat (target = 0, excluded from score &amp; name)')}
-          ${gsBody('breedout',`<div class="breedout-row">
-            <span style="color:var(--dim);font-size:11px;min-width:80px">Breed to 0:</span>
-            <select class="breedout-select" onchange="updateGoalBreedOut('${$esc(sp)}',this.value)">${boOpts}</select>
-            <span style="font-size:11px;color:var(--dim);margin-left:8px">Default: VIG &nbsp;&#x2022;&nbsp; Non-rideable: try INS</span>
-          </div>`)}
-        </div>
-        <div class="goals-section">
-          ${gsHdr('pairs','Species Goals — Bloodline × Phenotype')}
-          ${gsBody('pairs', speciesGoalRows)}
-        </div>
-        <div class="goals-section">
-          ${gsHdr('pheno','Phenotype Priority ★★★')}
-          ${gsBody('pheno', phenoRows)}
-        </div>
-        <div class="goals-section">
-          ${gsHdr('bloodline','Bloodline Priority ★★★')}
-          ${gsBody('bloodline', blRows)}
-        </div>
-        <div class="goals-section">
-          ${gsHdr('pheno-sightings','Phenotype Sightings <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">🌿 = tamed (wild-caught, no lineage) &nbsp; 🧬 = bred (has parents)</span>')}
-          ${gsBody('pheno-sightings',`<div class="pheno-sightings">${phSightingRadar}</div>`)}
-        </div>
-        <div class="goals-section">
-          ${gsHdr('bl-sightings','Bloodline Sightings <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">🌿 = tamed &nbsp; 🧬 = bred &nbsp; Only shows bloodlines you\'ve recorded</span>')}
-          ${gsBody('bl-sightings',`<div class="pheno-sightings">${blSightingRows}</div>`)}
-        </div>
-        <div class="goals-section">
-          ${gsHdr('suggestions','Breeding Suggestions <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">based on your priority stars above</span>')}
-          ${gsBody('suggestions',`<div class="suggestion-panel">${renderSuggestions(sp)}</div>`)}
-        </div>
-      </div>`;
-
-    if (isGoalCardCollapsed && goalsChips) {
-      // Collapsed → compact chip
-      const chip = document.createElement('div');
-      chip.className = 'species-chip';
-      chip.draggable = true;
-      chip.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', sp); e.dataTransfer.effectAllowed = 'move'; });
-      chip.addEventListener('dragover',  e => { e.preventDefault(); chip.style.outline = '2px dashed var(--acc)'; });
-      chip.addEventListener('dragleave', () => chip.style.outline = '');
-      chip.addEventListener('drop', e => { e.preventDefault(); chip.style.outline = ''; reorderSpecies(e.dataTransfer.getData('text/plain'), sp); });
-      chip.innerHTML = `
-        <span class="card-drag-handle" title="Drag to reorder">⠿</span>
-        <span class="species-dot" style="background:${cfg.color}"></span>${sp}
-        <span class="goals-shortcode">${cfg.short}</span>
-        <button class="card-width-btn" onclick="toggleCardWidth('${$esc(sp)}')" title="Toggle Narrow/Wide">${isWide ? '◧ Narrow' : '▣ Wide'}</button>
-        <button class="pairs-collapse-btn" onclick="toggleGoalCard('${$esc(sp)}')">▶ Show</button>`;
-      goalsChips.appendChild(chip);
-    } else {
-      grid.appendChild(card);
-      _initPairCardDnD(card);
-      _drawGoalSightingRadars(sp);
+    // One broken species card must not stop the rest of the tab from rendering
+    try {
+      _renderGoalCard(sp, cfg, grid, goalsChips);
+    } catch (err) {
+      console.error(`Goals tab: could not render ${sp}`, err);
+      grid.appendChild(_goalErrorCard(sp, err));
     }
   }
   requestAnimationFrame(() => applyMasonry('goals-grid'));
+}
+
+/** Build the Goals card for one species, or its chip when the card is collapsed */
+function _renderGoalCard(sp, cfg, grid, goalsChips) {
+  const goals = goalsMap[sp];
+  const n = pairCounts[sp] || cfg.defaultPairs;
+  const card = document.createElement('div');
+  const isWide = cardWidths[sp] === 2;
+  const isGoalCardCollapsed = collapsedGoalCards.has(sp);
+  card.className = 'goals-card' + (isWide ? ' span-2' : '') + (isGoalCardCollapsed ? ' collapsed' : '');
+  card.draggable = true;
+  card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', sp); e.dataTransfer.effectAllowed = 'move'; });
+  card.addEventListener('dragover',  e => { e.preventDefault(); card.style.outline = '2px dashed var(--acc)'; });
+  card.addEventListener('dragleave', () => card.style.outline = '');
+  card.addEventListener('drop', e => { e.preventDefault(); card.style.outline = ''; const from = e.dataTransfer.getData('text/plain'); reorderSpecies(from, sp); });
+
+  // ── Breed-out stat options (used inline in card.innerHTML below) ──
+  const boOpts = STATS.map(s =>
+    `<option value="${s}"${goals.breedOutStat === s ? ' selected' : ''}>${s}</option>`).join('');
+
+  // ── Species goals (replaces per-pair goals) ──
+  const speciesGoalRows = (goals.goals || []).map((g, i) => {
+    const blOpts = ['',...BLOODLINES].map(b =>
+      `<option value="${b}"${g.bl === b ? ' selected' : ''}>${b || '-- any bloodline --'}</option>`).join('');
+    const phOpts = `<option value="">-- any phenotype --</option>` +
+      cfg.phenotypes.map(p => `<option value="${p.label}"${g.ph === p.label ? ' selected' : ''}>${p.label}</option>`).join('');
+    return `<div class="goal-pair-row">
+      <span class="goal-pair-label">Goal ${i+1}</span>
+      <select onchange="updateSpeciesGoal('${$esc(sp)}',${i},'bl',this.value)">${blOpts}</select>
+      <select onchange="updateSpeciesGoal('${$esc(sp)}',${i},'ph',this.value)">${phOpts}</select>
+      <button class="goal-remove-btn" onclick="removeSpeciesGoal('${$esc(sp)}',${i})" title="Remove this goal">×</button>
+    </div>`;
+  }).join('') + `<button class="goal-add-btn" onclick="addSpeciesGoal('${$esc(sp)}')">+ Add Goal</button>`;
+
+  // ── Helper: 6-button star row (neg ★★★ | pos ★★★) ──
+  const makeStars6 = (w, onClickFn) => {
+    const neg = [3,2,1].map(n => {
+      const on = w <= -n;
+      return `<button class="star-btn neg ${on?'on':''}" onclick="${onClickFn(w===-n?0:-n)}">${on?'★':'☆'}</button>`;
+    }).join('');
+    const pos = [1,2,3].map(n => {
+      const on = w >= n;
+      return `<button class="star-btn ${on?'on':''}" onclick="${onClickFn(w===n?0:n)}">${on?'★':'☆'}</button>`;
+    }).join('');
+    return `<div class="star-group">${neg}<span class="star-sep"></span>${pos}</div>`;
+  };
+
+  // ── Phenotype weights with rarity colors ──
+  const phenoRows = cfg.phenotypes.map((p, pi) => {
+    const w = goals.phenoWeights[p.label] ?? 0;
+    const rarity = RARITY_FROM_WEIGHT(p.weight);
+    const col = RARITY_COLOR[rarity];
+    const rarityBadge = `<span style="color:${col};font-size:10px;margin-left:5px">${RARITY_LABEL[rarity]}</span>`;
+    const pDisp = pi === 0 ? p.label : `P${pi} ${p.label}`;
+    const labelCol = w < 0 ? '#e74c3c' : w > 0 ? '' : '';
+    const stars = makeStars6(w, v => `updatePhenoWeight('${$esc(sp)}',${pi},${v})`);
+    return `<div class="weight-row">
+      <span class="weight-label ${w?'wlit':'wdim'}" style="${labelCol?`color:${labelCol}`:''}">
+        ${pDisp}${rarityBadge}${w<0?` <span style="color:#e74c3c;font-size:10px">(avoid)</span>`:''}
+      </span>
+      ${stars}
+    </div>`;
+  }).join('');
+
+  // ── Bloodline weights ──
+  const blRows = BLOODLINES.map((bl, bi) => {
+    const w = goals.blPriority[bl] ?? 0;
+    const blCol = BLOODLINE_COLOR[bl] || '#aaa';
+    const stars = makeStars6(w, v => `updateBlPriority('${$esc(sp)}',${bi},${v})`);
+    return `<div class="weight-row">
+      <span class="weight-label ${w?'wlit':'wdim'}" style="${w<0?'color:#e74c3c':w>0?`color:${blCol}`:''}">
+        ${bl}${w<0?' <span style="color:#e74c3c;font-size:10px">(breed out)</span>':''}
+      </span>
+      ${stars}
+    </div>`;
+  }).join('');
+
+  // ── Phenotype sightings ──
+  // Count directly from animals[] so dead animals are included (status filter: exclude only Discard)
+  const spKey = sp.replace(/[^a-zA-Z0-9]/g, '_');
+  const spAllAnimals = animals.filter(a => a.sp === sp && a.status !== 'Discard');
+  const phCountMap = {};
+  spAllAnimals.forEach(a => {
+    const key = a.ph || cfg.phenotypes[0]?.label || '';
+    if (!phCountMap[key]) phCountMap[key] = { tamed: 0, bred: 0 };
+    if (a.isBred) phCountMap[key].bred++; else phCountMap[key].tamed++;
+  });
+  // Single P0-P7 radar; full card width, sqrt-scaled counts
+  const phSightingRadar = `<canvas id="sph_radar_${spKey}" width="280" height="220" class="ph-sight-radar"></canvas>`;
+
+  // ── Bloodline sightings ──
+  const blCountMap = {};
+  spAllAnimals.forEach(a => {
+    if (!a.bl) return;
+    if (!blCountMap[a.bl]) blCountMap[a.bl] = { tamed: 0, bred: 0 };
+    if (a.isBred) blCountMap[a.bl].bred++; else blCountMap[a.bl].tamed++;
+  });
+  const blSightingRows = BLOODLINES.map(bl => {
+    const s = blCountMap[bl];
+    if (!s) return '';
+    const blCol2 = BLOODLINE_COLOR[bl] || '#aaa';
+    return `<div class="sighting-row">
+      <span class="sighting-name" style="color:${blCol2}">${bl}</span>
+      <span class="sighting-tamed" title="Tamed from wild">🌿 ${s.tamed}</span>
+      <span class="sighting-bred"  title="Born from breeding">🧬 ${s.bred}</span>
+    </div>`;
+  }).join('') || `<div style="color:var(--dim);font-size:11px;padding:4px 0">No bloodline sightings recorded yet.</div>`;
+
+  const gsHdr = (secId, label) => {
+    const c = isGSecCollapsed(sp, secId);
+    return `<div class="goals-section-hdr" onclick="toggleGoalSection('${$esc(sp)}','${secId}')"><span class="gs-arrow">${c?'▶':'▼'}</span>${label}</div>`;
+  };
+  const gsBody = (secId, content) =>
+    `<div class="gs-body${isGSecCollapsed(sp, secId)?' collapsed':''}">${content}</div>`;
+
+  card.innerHTML = `
+    <h3>
+      <span class="card-drag-handle" title="Drag to reorder">⠿</span>
+      <span class="species-dot" style="background:${cfg.color}"></span>${sp}
+      <span class="goals-shortcode">${cfg.short}</span>
+      <button class="card-width-btn" onclick="toggleCardWidth('${$esc(sp)}')" title="Toggle Narrow/Wide">${isWide ? '◧ Narrow' : '▣ Wide'}</button>
+      <button class="pairs-collapse-btn" onclick="toggleGoalCard('${$esc(sp)}')" style="margin-left:auto">${isGoalCardCollapsed ? '▶ Show' : '▼ Hide'}</button>
+    </h3>
+    <div class="goals-card-body">
+      <div class="goals-section">
+        ${gsHdr('breedout','Breed-Out Stat (target = 0, excluded from score &amp; name)')}
+        ${gsBody('breedout',`<div class="breedout-row">
+          <span style="color:var(--dim);font-size:11px;min-width:80px">Breed to 0:</span>
+          <select class="breedout-select" onchange="updateGoalBreedOut('${$esc(sp)}',this.value)">${boOpts}</select>
+          <span style="font-size:11px;color:var(--dim);margin-left:8px">Default: VIG &nbsp;&#x2022;&nbsp; Non-rideable: try INS</span>
+        </div>`)}
+      </div>
+      <div class="goals-section">
+        ${gsHdr('pairs','Species Goals — Bloodline × Phenotype')}
+        ${gsBody('pairs', speciesGoalRows)}
+      </div>
+      <div class="goals-section">
+        ${gsHdr('pheno','Phenotype Priority ★★★')}
+        ${gsBody('pheno', phenoRows)}
+      </div>
+      <div class="goals-section">
+        ${gsHdr('bloodline','Bloodline Priority ★★★')}
+        ${gsBody('bloodline', blRows)}
+      </div>
+      <div class="goals-section">
+        ${gsHdr('pheno-sightings','Phenotype Sightings <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">🌿 = tamed (wild-caught, no lineage) &nbsp; 🧬 = bred (has parents)</span>')}
+        ${gsBody('pheno-sightings',`<div class="pheno-sightings">${phSightingRadar}</div>`)}
+      </div>
+      <div class="goals-section">
+        ${gsHdr('bl-sightings','Bloodline Sightings <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">🌿 = tamed &nbsp; 🧬 = bred &nbsp; Only shows bloodlines you\'ve recorded</span>')}
+        ${gsBody('bl-sightings',`<div class="pheno-sightings">${blSightingRows}</div>`)}
+      </div>
+      <div class="goals-section">
+        ${gsHdr('suggestions','Breeding Suggestions <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">based on your priority stars above</span>')}
+        ${gsBody('suggestions',`<div class="suggestion-panel">${renderSuggestions(sp)}</div>`)}
+      </div>
+    </div>`;
+
+  if (isGoalCardCollapsed && goalsChips) {
+    // Collapsed → compact chip
+    const chip = document.createElement('div');
+    chip.className = 'species-chip';
+    chip.draggable = true;
+    chip.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', sp); e.dataTransfer.effectAllowed = 'move'; });
+    chip.addEventListener('dragover',  e => { e.preventDefault(); chip.style.outline = '2px dashed var(--acc)'; });
+    chip.addEventListener('dragleave', () => chip.style.outline = '');
+    chip.addEventListener('drop', e => { e.preventDefault(); chip.style.outline = ''; reorderSpecies(e.dataTransfer.getData('text/plain'), sp); });
+    chip.innerHTML = `
+      <span class="card-drag-handle" title="Drag to reorder">⠿</span>
+      <span class="species-dot" style="background:${cfg.color}"></span>${sp}
+      <span class="goals-shortcode">${cfg.short}</span>
+      <button class="card-width-btn" onclick="toggleCardWidth('${$esc(sp)}')" title="Toggle Narrow/Wide">${isWide ? '◧ Narrow' : '▣ Wide'}</button>
+      <button class="pairs-collapse-btn" onclick="toggleGoalCard('${$esc(sp)}')">▶ Show</button>`;
+    goalsChips.appendChild(chip);
+  } else {
+    grid.appendChild(card);
+    _initPairCardDnD(card);
+    _drawGoalSightingRadars(sp);
+  }
+}
+
+/** Placeholder card shown when a species card throws while rendering. Uses textContent only. */
+function _goalErrorCard(sp, err) {
+  const card  = document.createElement('div');
+  card.className = 'goals-card goals-card-error';
+  const title = document.createElement('h3');
+  title.textContent = sp;
+  const msg   = document.createElement('p');
+  msg.textContent = `This card could not be shown (${err?.message || err}). Your saved data is not affected. Please report this on GitHub.`;
+  card.append(title, msg);
+  return card;
 }
 
 function updateGoalBreedOut(sp, val) {
