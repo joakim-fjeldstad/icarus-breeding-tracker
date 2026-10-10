@@ -961,6 +961,14 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
         <button class="btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
         <label class="btn-sm" style="cursor:pointer">⬆ Import CSV<input type="file" accept=".csv" onchange="importCSV(event)" style="display:none"></label>
       </div>
+      <p style="color:#aaa;margin:16px 0 12px;font-size:12px;line-height:1.6;">
+        Import animals from the game's own <code>Mounts.json</code> (in <code>%LOCALAPPDATA%\Icarus\Saved\PlayerData\&lt;SteamID&gt;\</code>).
+        The file only holds animals parked at the station. You get a preview of new, changed and missing animals before anything is saved.
+        The file is only read, never changed.
+      </p>
+      <div style="display:flex;gap:8px;">
+        <label class="btn-sm" style="cursor:pointer">🎮 Import from game<input type="file" accept=".json" onchange="importMounts(event)" style="display:none"></label>
+      </div>
     </div>
 
     <div class="entry-card">
@@ -1521,7 +1529,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.30 – New species, breeding and taming info';
+const APP_VERSION  = 'v0.31 – Import from the game';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 6;
 
@@ -5478,6 +5486,429 @@ function importCSV(e) {
   };
   reader.readAsText(file);
   e.target.value = '';
+}
+
+// ── IMPORT FROM GAME (Mounts.json, read only) ────────────────────
+// The game keeps every animal parked at the station in
+// %LOCALAPPDATA%\Icarus\Saved\PlayerData\<SteamID>\Mounts.json. Each entry carries a
+// RecorderBlob.BinaryData byte array in Unreal's property-tag format. The import reads
+// that file through a plain file input, shows a preview, and only changes the herd on
+// confirm. Nothing here writes a game file, and the owner name and player ID in the
+// blob are skipped by the parser without being decoded.
+
+const MOUNT_FILE_MAX_BYTES  = 25 * 1024 * 1024;  // about 800 station animals at 30 KB each
+const MOUNT_BLOB_MAX_BYTES  = 1 << 20;           // real blobs are 7 to 10 KB
+const MOUNT_MAX_ENTRIES     = 2000;
+const MOUNT_RECORDER_VERSION = 3;                // ActorStateRecorderVersion this import understands
+const MOUNT_SKIP_FIELDS     = new Set(['OwnerName', 'OwnerCharacterID']);   // personal data: skipped by size, never decoded
+const MOUNT_PARSE_MAX_STRING = 4096, MOUNT_PARSE_MAX_ARRAY = 100000, MOUNT_PARSE_MAX_DEPTH = 16;
+// Structs serialised natively (no property list inside); treated as opaque by size
+const MOUNT_NATIVE_STRUCTS  = new Set(['Vector', 'Vector2D', 'Vector4', 'Quat', 'Rotator', 'Transform', 'LinearColor', 'Color',
+  'Guid', 'IntPoint', 'IntVector', 'DateTime', 'Timespan', 'Box', 'Box2D', 'SoftObjectPath']);
+
+// MountType in the save -> tracker species. Alternate spellings from real saves are included.
+// Anything not listed is reported as "unknown species" and skipped, never guessed.
+const MOUNT_SPECIES = Object.assign(Object.create(null), {
+  Raptor_Desert: 'Dune Raptor', Raptor: 'Geothermal Raptor', Moa: 'Moa', Arctic_Moa: 'Arctic Moa',
+  Slinker: 'Slinker', Buffalo: 'Buffalo', Chew: 'Draven', Horse: 'Terrenus', Horse_Standard: 'Horse',
+  Tusker: 'Tusker', SwampBird: 'Ubis', Swamp_Bird: 'Ubis', WoollyMammoth: 'Woolly Mammoth', Zebra: 'Zebra',
+  WoolyZebra: 'Shaggy Zebra', Wooly_Zebra: 'Shaggy Zebra', Tundra_Monkey: 'Gribbler', Desert_Wolf: 'Hyena',
+  Orka: 'Skulk', Snow_Wolf: 'Snow Wolf', Wild_Boar: 'Wild Boar', WildBoar: 'Wild Boar', Wolf: 'Forest Wolf',
+  Storca: 'Storca', Kiwi: 'Kiwi', Bull: 'Cattle', Cow: 'Cattle', Chicken: 'Chicken', Rooster: 'Chicken',
+  Sheep: 'Sheep', Ram: 'Sheep', Pig: 'Pig',
+});
+const MOUNT_GENES = Object.assign(Object.create(null), {
+  Vitality: 'VIG', Endurance: 'FIT', Muscle: 'PHY', Agility: 'REF', Toughness: 'TGH', Hardiness: 'ADP', Utility: 'INS',
+});
+// The save writes the internal lineage name; the game shows "Unstable" for the row "Fierce" (D_GeneticLineages)
+const MOUNT_LINEAGE_ALIAS = Object.assign(Object.create(null), { Fierce: 'Unstable' });
+// Horse coats are separate AI rows, not Variation. Workshop items: _A1 Brown, _A2 Black, _A3 White.
+// Tracker order is Brown (base), White, Black.
+const MOUNT_HORSE_COAT = Object.assign(Object.create(null), { A1: 0, A2: 2, A3: 1 });
+// Species codes that older tracker versions wrote into names
+const MOUNT_LEGACY_SHORT = Object.assign(Object.create(null), { SR: 'Geothermal Raptor' });
+
+class MountParseError extends Error {}
+
+/** Bounds-checked little-endian reader over one slice of the blob */
+class MountReader {
+  constructor(bytes, start = 0, end = bytes.length) { this.b = bytes; this.pos = start; this.end = end; }
+  get remaining() { return this.end - this.pos; }
+  need(n) { if (!Number.isInteger(n) || n < 0 || this.pos + n > this.end) throw new MountParseError(`read of ${n} bytes at ${this.pos} exceeds ${this.end}`); }
+  u8()  { this.need(1); return this.b[this.pos++]; }
+  i32() { this.need(4); const b = this.b, p = this.pos; this.pos += 4; return b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24); }
+  u32() { return this.i32() >>> 0; }
+  skip(n) { this.need(n); this.pos += n; }
+  sub(n)  { this.need(n); const r = new MountReader(this.b, this.pos, this.pos + n); this.pos += n; return r; }
+  // FString: int32 length including the terminator; positive is 8-bit text, negative is UTF-16
+  fstring() {
+    const len = this.i32();
+    if (len === 0) return '';
+    if (len > 0) {
+      if (len > MOUNT_PARSE_MAX_STRING) throw new MountParseError(`string length ${len} over limit`);
+      this.need(len);
+      const s = new TextDecoder('latin1').decode(this.b.subarray(this.pos, this.pos + len - 1));
+      this.pos += len; return s;
+    }
+    const n = -len;
+    if (n > MOUNT_PARSE_MAX_STRING) throw new MountParseError(`utf16 string length ${n} over limit`);
+    this.need(n * 2);
+    const s = new TextDecoder('utf-16le').decode(this.b.subarray(this.pos, this.pos + (n - 1) * 2));
+    this.pos += n * 2; return s;
+  }
+}
+
+function mountReadTag(r) {
+  const name = r.fstring();
+  if (name === 'None') return null;
+  const type = r.fstring(), size = r.i32(), index = r.i32();
+  if (size < 0 || size > r.remaining) throw new MountParseError(`tag ${name}: size ${size} out of range`);
+  if (index < 0) throw new MountParseError(`tag ${name}: negative array index`);
+  const tag = { name, type, size, index };
+  switch (type) {
+    case 'StructProperty': tag.structName = r.fstring(); r.skip(16); break;   // struct guid
+    case 'BoolProperty':   tag.boolVal = r.u8(); break;                        // the value lives in the tag, size is 0
+    case 'ByteProperty':
+    case 'EnumProperty':   tag.enumName = r.fstring(); break;
+    case 'ArrayProperty':
+    case 'SetProperty':    tag.innerType = r.fstring(); break;
+    case 'MapProperty':    tag.innerType = r.fstring(); tag.valueType = r.fstring(); break;
+    default: break;
+  }
+  if (r.u8() !== 0) r.skip(16);                                                // property guid
+  return tag;
+}
+
+function mountReadArray(sub, tag, depth) {
+  const count = sub.i32();
+  if (count < 0 || count > MOUNT_PARSE_MAX_ARRAY || count > sub.remaining) throw new MountParseError(`array ${tag.name}: bad count ${count}`);
+  const out = [];
+  switch (tag.innerType) {
+    case 'IntProperty':    for (let i = 0; i < count; i++) out.push(sub.i32()); return out;
+    case 'UInt32Property': for (let i = 0; i < count; i++) out.push(sub.u32()); return out;
+    case 'BoolProperty':   for (let i = 0; i < count; i++) out.push(sub.u8() !== 0); return out;
+    case 'StrProperty':
+    case 'NameProperty':   for (let i = 0; i < count; i++) out.push(sub.fstring()); return out;
+    case 'StructProperty': {
+      const inner = mountReadTag(sub);                  // one tag describes every element
+      if (!inner || inner.type !== 'StructProperty') throw new MountParseError(`array ${tag.name}: missing inner struct tag`);
+      const body = sub.sub(inner.size);
+      if (MOUNT_NATIVE_STRUCTS.has(inner.structName)) return { opaque: inner.structName };
+      for (let i = 0; i < count; i++) out.push(mountReadProps(body, depth + 1));
+      return out;
+    }
+    default: return { opaque: tag.innerType };         // skipped by the tag size
+  }
+}
+
+function mountReadValue(r, tag, depth) {
+  if (tag.type === 'BoolProperty') return tag.boolVal !== 0;
+  const sub = r.sub(tag.size);                          // a value can never read past its own size
+  switch (tag.type) {
+    case 'StrProperty':
+    case 'NameProperty':   return sub.fstring();
+    case 'IntProperty':    return sub.i32();
+    case 'UInt32Property': return sub.u32();
+    case 'EnumProperty':   return sub.fstring();
+    case 'ByteProperty':   return tag.size === 1 ? sub.u8() : sub.fstring();
+    case 'StructProperty': return MOUNT_NATIVE_STRUCTS.has(tag.structName) ? { opaque: tag.structName } : mountReadProps(sub, depth + 1);
+    case 'ArrayProperty':  return mountReadArray(sub, tag, depth);
+    default:               return { opaque: tag.type }; // unknown type: skipped by size, never guessed
+  }
+}
+
+function mountReadProps(r, depth = 0) {
+  if (depth > MOUNT_PARSE_MAX_DEPTH) throw new MountParseError('nesting too deep');
+  const obj = Object.create(null);                      // keys come from the file
+  while (r.remaining > 0) {
+    const tag = mountReadTag(r);
+    if (!tag) break;
+    if (MOUNT_SKIP_FIELDS.has(tag.name)) { r.skip(tag.size); continue; }     // personal data stays undecoded
+    obj[tag.index ? `${tag.name}[${tag.index}]` : tag.name] = mountReadValue(r, tag, depth);
+  }
+  return obj;
+}
+
+/** Parse one RecorderBlob.BinaryData array (integers 0..255) into a plain object tree */
+function parseMountBlob(binaryData) {
+  if (!Array.isArray(binaryData)) throw new MountParseError('BinaryData is not an array');
+  if (binaryData.length > MOUNT_BLOB_MAX_BYTES) throw new MountParseError(`blob of ${binaryData.length} bytes over limit`);
+  const bytes = new Uint8Array(binaryData.length);
+  for (let i = 0; i < binaryData.length; i++) {
+    const v = binaryData[i];
+    if (!Number.isInteger(v) || v < 0 || v > 255) throw new MountParseError(`byte ${i} is not 0..255`);
+    bytes[i] = v;
+  }
+  return mountReadProps(new MountReader(bytes));
+}
+
+/**
+ * Turn one SavedMounts entry into an import candidate, or a skip reason.
+ * Only the fields the tracker uses are copied out; the parsed tree is dropped.
+ */
+function extractMount(entry) {
+  const gameName = _sanitizeStr(entry.MountName);
+  const skip = reason => ({ ok: false, gameName, reason });
+  if (!entry.RecorderBlob || typeof entry.RecorderBlob !== 'object') return skip('no recorder data');
+  let t;
+  try { t = parseMountBlob(entry.RecorderBlob.BinaryData); }
+  catch (e) { return skip(e instanceof MountParseError ? 'unreadable record' : 'unreadable record'); }
+  if (t.ActorStateRecorderVersion !== MOUNT_RECORDER_VERSION) return skip(`newer save format (version ${$h(String(t.ActorStateRecorderVersion))})`);
+  const sp = typeof entry.MountType === 'string' ? MOUNT_SPECIES[entry.MountType] : undefined;
+  if (!sp || !Object.hasOwn(SPECIES_DATA, sp)) return skip(`unknown species (${_sanitizeStr(entry.MountType, 40) || '?'})`);
+  const sex = t.Sex === 1 ? 'F' : t.Sex === 2 ? 'M' : '';
+  if (!sex) return skip('no sex recorded');
+  const rawLineage = typeof t.Lineage === 'string' ? t.Lineage : '';
+  const bl = MOUNT_LINEAGE_ALIAS[rawLineage] || rawLineage;
+  if (!BLOODLINES.includes(bl)) return skip(rawLineage === 'None' || rawLineage === '' ? 'no bloodline recorded (old game version)' : 'unknown bloodline');
+  const stats = {};
+  if (Array.isArray(t.Genetics)) for (const g of t.Genetics) {
+    if (g && typeof g === 'object' && Object.hasOwn(MOUNT_GENES, g.GeneticValueName)) stats[MOUNT_GENES[g.GeneticValueName]] = Math.max(0, Math.min(10, parseInt(g.Value) || 0));
+  }
+  if (STATS.some(s => stats[s] === undefined)) return skip('incomplete genetics');
+  let phIndex = typeof t.Variation === 'number' ? t.Variation : -1;
+  if (sp === 'Horse') {
+    const coat = (typeof t.AISetupRowName === 'string' && t.AISetupRowName.match(/_(A\d)$/) || [])[1];
+    phIndex = Object.hasOwn(MOUNT_HORSE_COAT, coat) ? MOUNT_HORSE_COAT[coat] : -1;
+  }
+  const phenotypes = SPECIES_DATA[sp].phenotypes;
+  if (phIndex < 0 || phIndex >= phenotypes.length) return skip(`phenotype ${phIndex} is not known for ${sp}`);
+  const level = typeof entry.MountLevel === 'number' ? Math.max(0, Math.min(50, Math.floor(entry.MountLevel))) : 0;
+  const mother = _sanitizeStr(t.MotherName), father = _sanitizeStr(t.FatherName);
+  return { ok: true, gameName, sp, sex, bl, stats, phIndex, ph: phenotypes[phIndex].label, level, mother, father, isBred: !!(mother || father) };
+}
+
+/** Validate the top-level JSON and extract every entry. Returns candidates and skipped entries. */
+function readMountsFile(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('This file is not valid JSON'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.SavedMounts)) throw new Error('This does not look like a Mounts.json file (no SavedMounts list)');
+  if (data.SavedMounts.length > MOUNT_MAX_ENTRIES) throw new Error(`Too many animals in the file (over ${MOUNT_MAX_ENTRIES})`);
+  const candidates = [], skipped = [];
+  data.SavedMounts.forEach((entry, i) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) { skipped.push({ gameName: `entry ${i + 1}`, reason: 'not an animal record' }); return; }
+    const r = extractMount(entry);
+    if (r.ok) candidates.push(r); else skipped.push({ gameName: r.gameName || `entry ${i + 1}`, reason: r.reason });
+  });
+  return { candidates, skipped, total: data.SavedMounts.length };
+}
+
+const _mountFingerprint = (sp, sex, stats) => `${sp}|${sex}|${STATS.map(s => stats[s] | 0).join(',')}`;
+
+/**
+ * Match candidates to herd animals and work out what an import would change.
+ * Rule 1: the tracker ID at the start of the in-game name (current or legacy species code).
+ * Rule 2: the in-game name equals a herd animal's nickname, confirmed by sex, stats, phenotype and bloodline.
+ * Every herd animal can be claimed once. Everything else is new.
+ */
+function planMountImport(text) {
+  const { candidates, skipped, total } = readMountsFile(text);
+  const shortLookup = buildShortLookup();
+  const claimed = new Set();
+  // Several herd animals can share an ID (older files), so keep every one and pick an unclaimed match
+  const byKey = new Map();
+  animals.forEach(a => { const k = `${a.sp}#${a.spId}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(a); });
+  const byNick = new Map();
+  animals.forEach(a => { if (a.nickname) { const k = `${a.sp}|${a.nickname}`; if (!byNick.has(k)) byNick.set(k, []); byNick.get(k).push(a); } });
+  const fpCount = new Map(), fpAnimal = new Map();
+  animals.forEach(a => { const k = _mountFingerprint(a.sp, a.sex, a.stats || {}); fpCount.set(k, (fpCount.get(k) || 0) + 1); fpAnimal.set(k, a); });
+  const same = (c, a) => a.sex === c.sex && a.ph === c.ph && a.bl === c.bl && STATS.every(s => (a.stats?.[s] | 0) === c.stats[s]);
+
+  const added = [], changed = [], unchanged = [];
+  for (const c of candidates) {
+    let a = null;
+    const m = c.gameName.match(/^([A-Za-z]{2})0*(\d+)\b/);
+    if (m) {
+      const code = m[1].toUpperCase();
+      const sp = shortLookup[code] || MOUNT_LEGACY_SHORT[code];
+      if (sp === c.sp) {
+        const free = (byKey.get(`${c.sp}#${parseInt(m[2])}`) || []).filter(x => !claimed.has(x.id));
+        a = free.find(x => same(c, x)) || free[0] || null;
+      }
+    }
+    if (!a && c.gameName) {
+      const hit = (byNick.get(`${c.sp}|${c.gameName}`) || []).find(x => !claimed.has(x.id) && same(c, x));
+      if (hit) a = hit;
+    }
+    if (!a && !c.gameName) {
+      // An animal without a name in game can only be recognised by its data: one unclaimed, unnamed herd animal that matches on every field
+      const hits = animals.filter(x => x.sp === c.sp && !x.nickname && !claimed.has(x.id) && same(c, x));
+      if (hits.length === 1) a = hits[0];
+    }
+    if (!a) {
+      const fp = _mountFingerprint(c.sp, c.sex, c.stats);
+      const hint = fpCount.get(fp) === 1 ? fpAnimal.get(fp) : null;
+      added.push({ c, hint: hint && !claimed.has(hint.id) ? displayName(hint) : '' });
+      continue;
+    }
+    claimed.add(a.id);
+    const diffs = [];
+    if (a.sex !== c.sex) diffs.push({ field: 'sex', from: a.sex, to: c.sex });
+    STATS.forEach(s => { if ((a.stats?.[s] | 0) !== c.stats[s]) diffs.push({ field: s, from: a.stats?.[s] | 0, to: c.stats[s] }); });
+    if (a.ph !== c.ph) diffs.push({ field: 'phenotype', from: a.ph, to: c.ph });
+    if (a.bl !== c.bl) diffs.push({ field: 'bloodline', from: a.bl, to: c.bl });
+    // A level the tracker never had is filled in silently; only a different level is a change
+    if (c.level > 0 && a.level && a.level !== c.level) diffs.push({ field: 'level', from: a.level, to: c.level });
+    if (diffs.length) changed.push({ c, a, diffs }); else unchanged.push({ c, a });
+  }
+  // Herd animals marked as on the station that the file does not contain
+  const notInFile = animals.filter(a => a.status === 'Station' && !claimed.has(a.id));
+  return { total, added, changed, unchanged, skipped, notInFile, claimedIds: [...claimed] };
+}
+
+/**
+ * Apply a plan. `choices` says what the player ticked:
+ *   addIdx: Set of indexes into plan.added to add
+ *   diffKeys: Set of "<animalId>|<field>" to apply from plan.changed
+ *   stationAll: set status Station on every matched animal
+ *   notInFile: Map animalId -> '' | '?' | 'Dead'
+ */
+function applyMountImport(plan, choices) {
+  // Reserve every ID in use so new ones never collide
+  animals.forEach(a => { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, (a.spId || 0) + 1); });
+  const byName = new Map(animals.map(a => [a.name, a]));
+  const created = [];
+  plan.added.forEach((row, i) => {
+    if (!choices.addIdx.has(i)) return;
+    const c = row.c;
+    const spId = getNextSpId(c.sp);
+    const stats = {}; STATS.forEach(s => stats[s] = c.stats[s]);
+    const name = computeName(c.sp, c.sex, c.bl, c.ph, stats, spId);
+    // The in-game name becomes the nickname, also when it carries a tracker ID that did not match: that is how a later import recognises the animal
+    const a = {
+      id: Date.now() + Math.random(), spId, sp: c.sp, sex: c.sex, bl: c.bl, ph: c.ph, gen: 1,
+      p1: '', p2: '', isBred: c.isBred, stats, total: getTotal(stats, c.sp), name,
+      nickname: c.gameName === name ? '' : c.gameName, favorite: false, status: 'Station', notes: '',
+      ...(c.level > 0 ? { level: c.level } : {}),
+    };
+    animals.push(a); byName.set(a.name, a); created.push({ a, c });
+  });
+  // Parents: a parent imported in this run first, then a herd animal by name or nickname, else the in-game name as text
+  const createdByGame = new Map();
+  created.forEach(({ a, c }) => { const k = `${c.sp}|${c.gameName}`; createdByGame.set(k, createdByGame.has(k) ? null : a); });
+  const herdByNick = new Map();
+  animals.forEach(a => { if (a.nickname) { const k = `${a.sp}|${a.nickname}`; herdByNick.set(k, herdByNick.has(k) ? null : a); } });
+  const resolveParent = (sp, text) => {
+    if (!text) return '';
+    const own = createdByGame.get(`${sp}|${text}`); if (own) return own.name;
+    const byN = byName.get(text); if (byN && byN.sp === sp) return byN.name;
+    const nick = herdByNick.get(`${sp}|${text}`); if (nick) return nick.name;
+    return text;
+  };
+  created.forEach(({ a, c }) => {
+    a.p1 = resolveParent(c.sp, c.mother); a.p2 = resolveParent(c.sp, c.father);
+    const gens = [a.p1, a.p2].map(n => byName.get(n)).filter(Boolean).map(p => p.gen || 1);
+    if (gens.length) a.gen = Math.max(...gens) + 1;
+  });
+  // Changed fields the player left ticked
+  let fieldsApplied = 0;
+  plan.changed.forEach(({ a, diffs }) => diffs.forEach(d => {
+    if (!choices.diffKeys.has(`${a.id}|${d.field}`)) return;
+    fieldsApplied++;
+    if (d.field === 'sex') a.sex = d.to;
+    else if (d.field === 'phenotype') a.ph = d.to;
+    else if (d.field === 'bloodline') a.bl = d.to;
+    else if (d.field === 'level') a.level = d.to;
+    else if (STATS.includes(d.field)) { a.stats = a.stats || {}; a.stats[d.field] = d.to; a.total = getTotal(a.stats, a.sp); }
+  }));
+  // Matched animals: fill in a level the tracker did not have, and set the station status if asked
+  [...plan.changed, ...plan.unchanged].forEach(({ a, c }) => { if (c.level > 0 && !a.level) a.level = c.level; });
+  if (choices.stationAll) plan.claimedIds.forEach(id => { const a = animals.find(x => x.id === id); if (a) a.status = 'Station'; });
+  let statusChanged = 0;
+  plan.notInFile.forEach(a => { const s = choices.notInFile.get(a.id); if (s === '?' || s === 'Dead') { a.status = s; statusChanged++; } });
+  if (created.length || fieldsApplied || statusChanged) addLog(`Imported from the game file: ${created.length} new, ${fieldsApplied} fields updated, ${statusChanged} status changes`, 'add');
+  saveAndRefreshFull();
+  return { added: created.length, fieldsApplied, statusChanged };
+}
+
+/** Preview modal: nothing changes until Confirm */
+function showMountPreview(plan, fileName) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;display:flex;align-items:center;justify-content:center';
+  const box = document.createElement('div');
+  box.className = 'opt-modal'; box.style.maxWidth = '760px'; box.id = 'mount-preview';
+  const h = (tag, text, cls) => {
+    const el = document.createElement(tag);
+    if (text !== undefined) el.textContent = text;
+    if (cls === 'file-note') el.style.cssText = 'font-size:11px;color:var(--dim);margin:0 0 6px;line-height:1.5';
+    else if (cls) el.className = cls;
+    return el;
+  };
+  const section = (title, count) => { const s = h('h3', `${title} (${count})`); s.style.cssText = 'font-size:13px;margin:14px 0 6px;color:var(--acc)'; box.appendChild(s); return s; };
+  const list = () => { const ul = h('ul'); ul.style.cssText = 'margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:#ccc'; box.appendChild(ul); return ul; };
+  const checkbox = (ul, label, key, checked = true) => {
+    const li = h('li'), lab = h('label'), cb = h('input'); cb.type = 'checkbox'; cb.checked = checked; cb.dataset.key = key; cb.style.marginRight = '6px';
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(label)); li.appendChild(lab); ul.appendChild(li);
+  };
+  const title = h('h2', `Import from game: ${fileName}`); title.style.cssText = 'font-size:15px;margin:0 0 4px';
+  box.appendChild(title);
+  box.appendChild(h('p', `${plan.total} animals in the file. Only animals parked at the station are in it. Nothing changes until you confirm.`, 'file-note'));
+
+  section('New', plan.added.length);
+  let ul = list();
+  plan.added.forEach((row, i) => checkbox(ul, `${row.c.gameName || '(no name)'}: ${row.c.sp} ${row.c.sex} ${row.c.bl}${phenoNameSuffix(row.c.sp, row.c.ph)}, ${STATS.map(s => row.c.stats[s]).join('/')}` + (row.hint ? ` (may already be in the herd as ${row.hint})` : ''), `add|${i}`));
+  if (!plan.added.length) ul.appendChild(h('li', 'none'));
+
+  section('Changed', plan.changed.length);
+  ul = list();
+  plan.changed.forEach(({ a, diffs }) => diffs.forEach(d => checkbox(ul, `${displayName(a)}: ${d.field} ${d.from} → ${d.to}`, `diff|${a.id}|${d.field}`)));
+  if (!plan.changed.length) ul.appendChild(h('li', 'none'));
+
+  section('Unchanged', plan.unchanged.length);
+  ul = list();
+  if (plan.unchanged.length) { const li = h('li', plan.unchanged.map(({ a }) => displayName(a)).join(', ')); ul.appendChild(li); } else ul.appendChild(h('li', 'none'));
+  if (plan.claimedIds.length) { const u2 = list(); checkbox(u2, 'Set status to Station for every animal found in the file', 'stationAll', false); }
+
+  section('Not in file', plan.notInFile.length);
+  box.appendChild(h('p', 'These are marked as on the station in the tracker but are not in the file: taken down to a world, or lost. Choose what to do with each.', 'file-note'));
+  ul = list();
+  plan.notInFile.forEach(a => {
+    const li = h('li'); li.appendChild(document.createTextNode(`${displayName(a)} `));
+    const sel = h('select'); sel.dataset.key = `nif|${a.id}`; sel.style.cssText = 'font-size:11px;margin-left:6px';
+    [['', 'leave as is'], ['?', 'set status to ?'], ['Dead', 'set status to Dead']].forEach(([v, t]) => { const o = h('option', t); o.value = v; sel.appendChild(o); });
+    li.appendChild(sel); ul.appendChild(li);
+  });
+  if (!plan.notInFile.length) ul.appendChild(h('li', 'none'));
+
+  section('Skipped', plan.skipped.length);
+  ul = list();
+  plan.skipped.forEach(s => ul.appendChild(h('li', `${s.gameName || '(no name)'}: ${s.reason}`)));
+  if (!plan.skipped.length) ul.appendChild(h('li', 'none'));
+
+  const btns = h('div', undefined, 'opt-modal-btns'); btns.style.justifyContent = 'flex-end'; btns.style.marginTop = '16px';
+  const cancel = h('button', 'Cancel', 'btn-secondary'), ok = h('button', 'Confirm import', 'btn-primary');
+  btns.appendChild(cancel); btns.appendChild(ok); box.appendChild(btns);
+  overlay.appendChild(box); document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  cancel.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  ok.addEventListener('click', () => {
+    const choices = { addIdx: new Set(), diffKeys: new Set(), stationAll: false, notInFile: new Map() };
+    box.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      if (!cb.checked) return;
+      const [kind, x, y] = cb.dataset.key.split('|');
+      if (kind === 'add') choices.addIdx.add(parseInt(x)); else if (kind === 'diff') choices.diffKeys.add(`${x}|${y}`); else if (kind === 'stationAll') choices.stationAll = true;
+    });
+    box.querySelectorAll('select').forEach(sel => { const id = parseFloat(sel.dataset.key.split('|')[1]); if (sel.value) choices.notInFile.set(id, sel.value); });
+    close();
+    const r = applyMountImport(plan, choices);
+    showToast(`Imported ${r.added} animals` + (r.fieldsApplied ? `, updated ${r.fieldsApplied} fields` : '') + (r.statusChanged ? `, ${r.statusChanged} status changes` : ''));
+  });
+}
+
+function importMounts(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (file.size > MOUNT_FILE_MAX_BYTES) { showToast(`File is too large (max ${MOUNT_FILE_MAX_BYTES / 1024 / 1024} MB)`); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    let plan;
+    try { plan = planMountImport(ev.target.result); }
+    catch (err) { showToast(err.message || 'Could not read the file'); return; }
+    showMountPreview(plan, file.name);
+  };
+  reader.readAsText(file);
 }
 
 function clearAllData() {

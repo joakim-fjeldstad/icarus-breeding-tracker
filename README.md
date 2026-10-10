@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.30-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.31-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -213,6 +213,33 @@ The **📋 Log** tab (between Lineage and Settings) keeps a chronological histor
 - **Text search** — filter entries by keyword as you type
 - **Max entries** — configurable limit (default 100); older entries are trimmed automatically when the limit is reached
 - **Clear** — wipe the log history if needed
+
+</details>
+
+<details>
+<summary><strong>🎮 Import from game</strong></summary>
+
+Icarus keeps every animal parked at the station in a file on your computer:
+
+```
+%LOCALAPPDATA%\Icarus\Saved\PlayerData\<SteamID>\Mounts.json
+```
+
+Under **⚙ Settings → Export & Import**, click **🎮 Import from game** and pick that file. The tracker reads it and shows a preview before anything is saved:
+
+- **New** — animals in the file that the tracker does not know. They get a tracker name, the in-game name as nickname, status **🛸 On Station**, and their stats, sex, bloodline, phenotype, parents and level from the game
+- **Changed** — animals the tracker already has where a field differs (for example a typing error in a stat). Each field is listed with the old and the new value and can be unticked to keep the tracker's value
+- **Unchanged** — animals that match exactly
+- **Not in file** — animals marked as on the station in the tracker that are not in the file, because they were taken down to a world or lost. Leave them, or set their status to `?` or Dead
+- **Skipped** — entries the tracker cannot use, with the reason (Cat and Dog, a record without a bloodline from an old game version, a newer save format)
+
+How animals are recognised: an animal whose in-game name starts with its tracker ID (for example `DR12`) is that animal. Animals imported earlier are recognised by their nickname. Importing the same file twice adds nothing.
+
+Good to know:
+
+- Only animals **parked at the station** are in the file. Animals out on a prospect are not
+- The file is **only read**. The tracker never changes, writes or exports game files, and it is not a save editor
+- Your Steam ID and player name are in the file; the tracker skips them without reading them and never stores them
 
 </details>
 
