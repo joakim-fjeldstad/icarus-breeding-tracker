@@ -1289,9 +1289,7 @@ function resetFormUI() {
   // Hide probability comparison panels
   ['pc1', 'pc2'].forEach(id => { const el = $id(id); if (el) el.classList.remove('show'); });
   const pp = $id('prob-panel');      if (pp) pp.classList.remove('show');
-  // Parent fields may have been shown while editing an animal of a non-breedable species
-  const pr = $id('parent-fields-row');
-  if (pr) pr.style.display = SPECIES_DATA[$val('f-species')]?.breedable === false ? 'none' : '';
+  syncParentFields();  // parent fields may have been shown while editing
   // Reset status selector, name display, and floating panels
   const statusEl = $id('f-status'); if (statusEl) statusEl.value = '?';
   const cwEl = $id('custom-name-warn'); if (cwEl) cwEl.style.display = 'none';
@@ -3509,17 +3507,14 @@ function onSpeciesChange() {
 
   // Show/hide parent fields based on breedable flag
   const breedable = cfg.breedable !== false;
-  const parentRow  = $id('parent-fields-row');
-  const noBreedEl  = $id('no-breed-notice');
   const srcEl      = $id('no-breed-source');
-  if (parentRow) parentRow.style.display = breedable ? '' : 'none';
-  if (noBreedEl) noBreedEl.style.display  = breedable ? 'none' : '';
   if (!breedable && editingId === null) {
     // Hidden parent fields would otherwise be saved with the new animal
     ['f-p1', 'f-p2'].forEach(id => { const el = $id(id); if (el) el.value = ''; });
     ['pc1', 'pc2'].forEach(id => { const el = $id(id); if (el) el.classList.remove('show'); });
-    renderProbPanel();
   }
+  syncParentFields();
+  renderProbPanel();  // odds from the previous species must not stay on screen
   if (srcEl && !breedable) srcEl.textContent = obtainText(cfg);
   const breedInfo = $id('breed-info');
   if (breedInfo) {
@@ -3531,6 +3526,18 @@ function onSpeciesChange() {
 
   buildStatsRow();
   updateName();
+}
+
+/**
+ * Show the parent fields for breedable species, and while editing an animal that already has parents
+ * (so parents recorded earlier stay visible and can be cleared). The "cannot be bred" notice shows otherwise.
+ */
+function syncParentFields() {
+  const breedable = SPECIES_DATA[$val('f-species')]?.breedable !== false;
+  const keepParents = editingId !== null && !!($val('f-p1') || $val('f-p2'));
+  const row = $id('parent-fields-row'), notice = $id('no-breed-notice');
+  if (row)    row.style.display    = breedable || keepParents ? '' : 'none';
+  if (notice) notice.style.display = breedable || keepParents ? 'none' : '';
 }
 
 /** How the first animals of a species are obtained, as one sentence for the New Animal form */
@@ -3910,7 +3917,7 @@ function saveAnimal() {
   resetFormUI();
 
   // For new animals, offer pair placement
-  if (!editingId) showPairAssignPanel(id);
+  if (!wasEditing) showPairAssignPanel(id);
 
   $id('stat-VIG')?.focus();
 }
@@ -4201,8 +4208,7 @@ function editAnimal(id) {
   $id('f-gen').value = a.gen || 1;
   $id('f-p1').value = a.p1 || ''; onParentInput(1);
   $id('f-p2').value = a.p2 || ''; onParentInput(2);
-  // Animals recorded with parents before their species was marked not breedable keep them visible and editable
-  if (SPECIES_DATA[a.sp]?.breedable === false && (a.p1 || a.p2)) $id('parent-fields-row').style.display = '';
+  syncParentFields();  // the animal's own parents are filled in now
   $id('f-status').value = a.status || '?';
   $id('f-notes').value = a.notes || '';
   const lvlEl = $id('f-level'); if (lvlEl) lvlEl.value = a.level || '';

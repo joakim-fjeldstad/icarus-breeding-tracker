@@ -32,7 +32,8 @@ Implements #13, based on the species research in #7 (wiki, patch notes, the game
 ### Fixes
 - **New species land in their category** — if you have reordered the species cards, species added in a new version now appear inside their own category instead of at the end of the list. Duplicate entries in a saved order are ignored
 - **Dropping a link or text on a species card no longer moves a species** — only species cards reorder the list
-- **No breeding odds for species that cannot be bred** — switching a new entry to such a species clears the parent fields. Animals that already have parents keep them, and the fields stay visible when you edit the animal
+- **No breeding odds for species that cannot be bred** — switching a new entry to such a species clears the parent fields. Animals that already have parents keep them, and the fields stay visible when you edit the animal. Odds are also refreshed whenever you change species
+- **Updating an animal no longer opens the pair placement panel** — it only opens for newly added animals
 - **No "Breed with undefined"** — the serum line in the New Animal form only shows for species that have a serum
 
 ### README
