@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.29c-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.30-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -235,12 +235,36 @@ The **📋 Log** tab (between Lineage and Settings) keeps a chronological histor
 
 ## 🧬 Species Reference
 
-| Code | Species |
-|---|---|
-| DR | Dune Raptor |
-| SR | Swamp Raptor |
-| BM | Moa |
-| SL | Slinker |
+How to get the first animals of each species, and how to breed them. **Wild juvenile**: find a wild juvenile and raise it. **Snare**: catch it with a Snare Trap and the listed bait, in one of the listed biomes. **Station**: buy it from the station. Breeding needs the listed fertility serum, which primes the male.
+
+| Code | Species | Category | First animals | Breeding |
+|---|---|---|---|---|
+| DR | Dune Raptor | Mount | Wild juvenile | Raptor Fertility Serum |
+| GR | Geothermal Raptor | Mount | Wild juvenile | Raptor Fertility Serum |
+| BM | Moa | Mount | Wild juvenile | Moa Fertility Serum |
+| SL | Slinker | Mount | Wild juvenile | Slinker Fertility Serum |
+| BF | Buffalo | Mount | Wild juvenile | Buffalo Fertility Serum |
+| AM | Arctic Moa | Mount | Wild juvenile | Moa Fertility Serum |
+| DV | Draven | Mount | Wild juvenile | Not breedable |
+| HR | Horse | Mount | Station | Not breedable |
+| TE | Terrenus | Mount | Wild juvenile | Not breedable |
+| TK | Tusker | Mount | Wild juvenile | Tusker Fertility Serum |
+| UB | Ubis | Mount | Wild juvenile | Ubis Fertility Serum |
+| WM | Woolly Mammoth | Mount | Wild juvenile | Not breedable |
+| ZB | Zebra | Mount | Mission reward | Not breedable |
+| SZ | Shaggy Zebra | Mount | Wild juvenile | Not breedable |
+| GB | Gribbler | Attack Pet | Snare: Gribbler Bait (Tundra) | Gribber Fertility Serum (the game's spelling) |
+| HY | Hyena | Attack Pet | Snare: Hyena Bait (Desert, Volcanic) | Not breedable |
+| KW | Kiwi | Attack Pet | Snare: Kiwi Bait (Forest, Grassland, Arctic, at night) | Not breedable |
+| SK | Skulk | Attack Pet | Snare: Skulk Bait (Tundra, Arctic) | Not breedable |
+| SW | Snow Wolf | Attack Pet | Snare: Wolf Bait (Arctic) | Wolf Fertility Serum |
+| WB | Wild Boar | Attack Pet | Snare: Wild Boar Bait (Forest, Grassland) | Boar Fertility Serum |
+| WO | Forest Wolf | Attack Pet | Snare: Wolf Bait (Forest, Grassland) | Wolf Fertility Serum |
+| SC | Storca | Attack Pet | Snare: Storca Bait (Tundra, Arctic) | Not breedable |
+| CT | Cattle (Cow / Bull) | Utility Pet | Station | Bull Fertility Serum |
+| CK | Chicken (Rooster) | Utility Pet | Station | Rooster Fertility Serum |
+| SH | Sheep (Ram) | Utility Pet | Station | Ram Fertility Serum |
+| PG | Pig | Utility Pet | Station | Pig Fertility Serum |
 
 ---
 

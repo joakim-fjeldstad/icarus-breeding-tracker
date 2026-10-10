@@ -261,6 +261,7 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 .goals-card.collapsed h3{margin-bottom:0;}
 .goals-card-error{border-color:#c0392b;}
 .goals-card-error p{color:#e74c3c;font-size:12px;line-height:1.5;}
+.breed-info{font-size:11px;color:var(--dim);padding:4px 0 6px;border-top:1px solid var(--bdr);margin-top:4px;}
 .goals-card h3{font-size:13px;color:var(--acc);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .goals-shortcode{font-size:11px;background:var(--card);border:1px solid var(--bdr);color:#aaa;padding:1px 7px;border-radius:4px;font-family:monospace;font-weight:bold;}
 .goals-section{margin-bottom:14px;}
@@ -627,11 +628,13 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
           <option value="Ubis">🦩 Ubis [UB]</option>
           <option value="Woolly Mammoth">🦣 Woolly Mammoth [WM]</option>
           <option value="Zebra">🦓 Zebra [ZB]</option>
+          <option value="Shaggy Zebra">🦓 Shaggy Zebra [SZ]</option>
         </optgroup>
         <optgroup label="⚔️ Attack Pets">
           <option value="Forest Wolf">🐺 Forest Wolf [WO]</option>
           <option value="Gribbler">🐀 Gribbler [GB]</option>
           <option value="Hyena">🐕 Hyena [HY]</option>
+          <option value="Kiwi">🥝 Kiwi [KW]</option>
           <option value="Skulk">🦎 Skulk [SK]</option>
           <option value="Snow Wolf">🐺 Snow Wolf [SW]</option>
           <option value="Storca">🦖 Storca [SC]</option>
@@ -681,6 +684,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
     ⚠ This species cannot currently be bred — parents not tracked.
     <span id="no-breed-source"></span>
   </div>
+  <div id="breed-info" class="breed-info" hidden></div>
   <div class="prob-panel" id="prob-panel"></div>
   <div id="entry-reserve-info" style="font-size:11px;color:#aaa;margin-bottom:4px;display:none;">
     <span id="entry-reserve-text"></span>
@@ -1078,24 +1082,28 @@ const BLOODLINE_INFO = {
  * Each phenotype: { label, weight }
  * suffix for name is auto-derived: P0=base (empty), P1..PN = " P1 Name" or " P1"
  */
-// category: 'Mount' | 'Attack Pet' | 'Utility Pet'
-// breedable: can produce offspring (default true)
-// tameable:  found and tamed in the wild (false = station/mission only for first animals)
+// category:   'Mount' | 'Attack Pet' | 'Utility Pet'
+// breedable:  a fertility serum exists in game, so the species can produce offspring
+// serum:      in-game name of that serum (breedable species only)
+// obtain:     how the first animals are obtained:
+//             'juvenile' = tame a wild juvenile, 'snare' = Snare Trap with bait,
+//             'station'  = bought from the station, 'mission' = mission reward
+// bait, baitBiomes, baitNote: bait item and where it works (obtain 'snare' only)
 const SPECIES_DATA = {
   // ── MOUNTS ──────────────────────────────────────────────────────
-  'Dune Raptor':       { category:'Mount',      short:'DR', color:'#e8a020', wiki:'https://icarus.wiki.gg/wiki/Dune_Raptor',       defaultPairs:4, breedable:true,  tameable:true,  phenotypes:[
+  'Dune Raptor':       { category:'Mount',      short:'DR', color:'#e8a020', wiki:'https://icarus.wiki.gg/wiki/Dune_Raptor',       defaultPairs:4, breedable:true,  serum:'Raptor Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Dune Raptor (base)', weight:2000},
     {label:'Dune P1', weight:50}, {label:'Dune P2', weight:50},
     {label:'Dune P3', weight:50}, {label:'Dune P4', weight:50},
     {label:'Dune P5', weight:50},
     {label:'Dune P6', weight:5},  {label:'Dune P7', weight:5}]},
-  'Geothermal Raptor': { category:'Mount',      short:'GR', color:'#2e8b57', wiki:'https://icarus.wiki.gg/wiki/Geothermal_Raptor', defaultPairs:1, breedable:true,  tameable:true,  phenotypes:[
+  'Geothermal Raptor': { category:'Mount',      short:'GR', color:'#2e8b57', wiki:'https://icarus.wiki.gg/wiki/Geothermal_Raptor', defaultPairs:1, breedable:true,  serum:'Raptor Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Geothermal Raptor (base)', weight:2000},
     {label:'Geothermal P1', weight:50}, {label:'Geothermal P2', weight:50},
     {label:'Geothermal P3', weight:50}, {label:'Geothermal P4', weight:50},
     {label:'Geothermal P5', weight:50},
     {label:'Geothermal P6', weight:5},  {label:'Geothermal P7', weight:5}]},
-  'Moa':               { category:'Mount',      short:'BM', color:'#4169e1', wiki:'https://icarus.wiki.gg/wiki/Moa',               defaultPairs:4, breedable:true,  tameable:true,  phenotypes:[
+  'Moa':               { category:'Mount',      short:'BM', color:'#4169e1', wiki:'https://icarus.wiki.gg/wiki/Moa',               defaultPairs:4, breedable:true,  serum:'Moa Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Normal (base)', weight:2000},
     {label:'Chocolate',     weight:50},
     {label:'Blue',          weight:50},
@@ -1104,69 +1112,84 @@ const SPECIES_DATA = {
     {label:'Peacock/Kea',   weight:25},
     {label:'Green',         weight:25},
     {label:'Black',         weight:5}]},
-  'Slinker':           { category:'Mount',      short:'SL', color:'#9b59b6', wiki:'https://icarus.wiki.gg/wiki/Slinker',           defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
+  'Slinker':           { category:'Mount',      short:'SL', color:'#9b59b6', wiki:'https://icarus.wiki.gg/wiki/Slinker',           defaultPairs:2, breedable:true,  serum:'Slinker Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Slinker (base)', weight:2000},
     {label:'Slinker P1', weight:50}, {label:'Slinker P2', weight:50},
     {label:'Slinker P3', weight:5},
     {label:'Slinker P4', weight:50}, {label:'Slinker P5', weight:50},
     {label:'Slinker P6', weight:5}]},
-  'Buffalo':           { category:'Mount',      short:'BF', color:'#8b6914', wiki:'https://icarus.wiki.gg/wiki/Buffalo',           defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
+  'Buffalo':           { category:'Mount',      short:'BF', color:'#8b6914', wiki:'https://icarus.wiki.gg/wiki/Buffalo',           defaultPairs:2, breedable:true,  serum:'Buffalo Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Buffalo (base)', weight:2000},
     {label:'Buffalo P1', weight:50}, {label:'Buffalo P2', weight:50},
     {label:'Buffalo P3', weight:50}, {label:'Buffalo P4', weight:50},
-    {label:'Buffalo P5', weight:50},
+    {label:'Buffalo P5', weight:5},
     {label:'Buffalo P6', weight:5},  {label:'Buffalo P7', weight:5}]},
-  'Arctic Moa':        { category:'Mount',      short:'AM', color:'#89b4c8', wiki:'https://icarus.wiki.gg/wiki/Arctic_Moa',        defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
+  'Arctic Moa':        { category:'Mount',      short:'AM', color:'#89b4c8', wiki:'https://icarus.wiki.gg/wiki/Arctic_Moa',        defaultPairs:2, breedable:true,  serum:'Moa Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Arctic Moa (base)', weight:2000}]},
-  'Draven':            { category:'Mount',      short:'DV', color:'#c9a040', wiki:'https://icarus.wiki.gg/wiki/Draven',            defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
+  'Draven':            { category:'Mount',      short:'DV', color:'#c9a040', wiki:'https://icarus.wiki.gg/wiki/Draven',            defaultPairs:2, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Draven (base)', weight:2000}]},
-  'Horse':             { category:'Mount',      short:'HR', color:'#c8904a', wiki:'https://icarus.wiki.gg/wiki/Horse',             defaultPairs:1, breedable:false, tameable:false, phenotypes:[
+  'Horse':             { category:'Mount',      short:'HR', color:'#c8904a', wiki:'https://icarus.wiki.gg/wiki/Horse',             defaultPairs:1, breedable:false, obtain:'station', phenotypes:[
     {label:'Brown (base)', weight:2000},
     {label:'White',        weight:500},
     {label:'Black',        weight:200}]},
-  'Terrenus':          { category:'Mount',      short:'TE', color:'#9a8060', wiki:'https://icarus.wiki.gg/wiki/Terrenus',          defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
+  'Terrenus':          { category:'Mount',      short:'TE', color:'#9a8060', wiki:'https://icarus.wiki.gg/wiki/Terrenus',          defaultPairs:2, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Terrenus (base)', weight:2000}]},
-  'Tusker':            { category:'Mount',      short:'TK', color:'#8a9aaa', wiki:'https://icarus.wiki.gg/wiki/Tusker',            defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
-    {label:'Tusker (base)', weight:2000}]},
-  'Ubis':              { category:'Mount',      short:'UB', color:'#c85090', wiki:'https://icarus.wiki.gg/wiki/Ubis',              defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
-    {label:'Ubis (base)', weight:2000}]},
-  'Woolly Mammoth':    { category:'Mount',      short:'WM', color:'#6a4a2a', wiki:'https://icarus.wiki.gg/wiki/Woolly_Mammoth',    defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
+  'Tusker':            { category:'Mount',      short:'TK', color:'#8a9aaa', wiki:'https://icarus.wiki.gg/wiki/Tusker',            defaultPairs:2, breedable:true,  serum:'Tusker Fertility Serum', obtain:'juvenile', phenotypes:[
+    {label:'Tusker (base)', weight:2000},
+    {label:'Tusker P1', weight:50}, {label:'Tusker P2', weight:50},
+    {label:'Tusker P3', weight:50}, {label:'Tusker P4', weight:50},
+    {label:'Tusker P5', weight:50}, {label:'Tusker P6', weight:5}]},
+  'Ubis':              { category:'Mount',      short:'UB', color:'#c85090', wiki:'https://icarus.wiki.gg/wiki/Ubis',              defaultPairs:2, breedable:true,  serum:'Ubis Fertility Serum', obtain:'juvenile', phenotypes:[
+    {label:'Ubis (base)', weight:2000},
+    {label:'Ubis P1', weight:50}, {label:'Ubis P2', weight:50},
+    {label:'Ubis P3', weight:50}, {label:'Ubis P4', weight:50},
+    {label:'Ubis P5', weight:50}, {label:'Ubis P6', weight:50},
+    {label:'Ubis P7', weight:5}]},
+  'Woolly Mammoth':    { category:'Mount',      short:'WM', color:'#6a4a2a', wiki:'https://icarus.wiki.gg/wiki/Woolly_Mammoth',    defaultPairs:1, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Woolly Mammoth (base)', weight:2000}]},
-  'Zebra':             { category:'Mount',      short:'ZB', color:'#a0a0a0', wiki:'https://icarus.wiki.gg/wiki/Zebra',             defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
+  'Zebra':             { category:'Mount',      short:'ZB', color:'#a0a0a0', wiki:'https://icarus.wiki.gg/wiki/Zebra',             defaultPairs:1, breedable:false, obtain:'mission', phenotypes:[
     {label:'Zebra (base)', weight:2000}]},
+  'Shaggy Zebra':      { category:'Mount',      short:'SZ', color:'#80ffdb', wiki:'https://icarus.wiki.gg/wiki/Shaggy_Zebra',      defaultPairs:1, breedable:false, obtain:'juvenile', phenotypes:[
+    {label:'Shaggy Zebra (base)', weight:2000}]},
 
   // ── ATTACK PETS ─────────────────────────────────────────────────
-  'Gribbler':          { category:'Attack Pet', short:'GB', color:'#8a7050', wiki:'https://icarus.wiki.gg/wiki/Gribbler',          defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
+  'Gribbler':          { category:'Attack Pet', short:'GB', color:'#8a7050', wiki:'https://icarus.wiki.gg/wiki/Gribbler',          defaultPairs:1, breedable:true,  serum:'Gribber Fertility Serum', obtain:'snare', bait:'Gribbler Bait', baitBiomes:['Tundra'], phenotypes:[
     {label:'Gribbler (base)', weight:2000},
     {label:'Gribbler P1', weight:50}, {label:'Gribbler P2', weight:50},
     {label:'Gribbler P3', weight:50}, {label:'Gribbler P4', weight:50},
     {label:'Gribbler P5', weight:50},
     {label:'Gribbler P6', weight:5},  {label:'Gribbler P7', weight:5}]},
-  'Hyena':             { category:'Attack Pet', short:'HY', color:'#c89050', wiki:'https://icarus.wiki.gg/wiki/Hyena',             defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
+  'Hyena':             { category:'Attack Pet', short:'HY', color:'#c89050', wiki:'https://icarus.wiki.gg/wiki/Hyena',             defaultPairs:1, breedable:false, obtain:'snare', bait:'Hyena Bait', baitBiomes:['Desert','Volcanic'], phenotypes:[
     {label:'Hyena (base)', weight:2000}]},
-  'Skulk':             { category:'Attack Pet', short:'SK', color:'#5a6a6a', wiki:'https://icarus.wiki.gg/wiki/Skulk',             defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
+  'Skulk':             { category:'Attack Pet', short:'SK', color:'#5a6a6a', wiki:'https://icarus.wiki.gg/wiki/Skulk',             defaultPairs:1, breedable:false, obtain:'snare', bait:'Skulk Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
     {label:'Skulk (base)', weight:2000}]},
-  'Snow Wolf':         { category:'Attack Pet', short:'SW', color:'#a0c0d8', wiki:'https://icarus.wiki.gg/wiki/Snow_Wolf',         defaultPairs:1, breedable:true,  tameable:true,  phenotypes:[
+  'Snow Wolf':         { category:'Attack Pet', short:'SW', color:'#a0c0d8', wiki:'https://icarus.wiki.gg/wiki/Snow_Wolf',         defaultPairs:1, breedable:true,  serum:'Wolf Fertility Serum', obtain:'snare', bait:'Wolf Bait', baitBiomes:['Arctic'], phenotypes:[
     {label:'Snow Wolf (base)', weight:2000}]},
-  'Wild Boar':         { category:'Attack Pet', short:'WB', color:'#6a5040', wiki:'https://icarus.wiki.gg/wiki/Boar',              defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
-    {label:'Wild Boar (base)', weight:2000}]},
-  'Forest Wolf':       { category:'Attack Pet', short:'WO', color:'#708060', wiki:'https://icarus.wiki.gg/wiki/Wolf',              defaultPairs:2, breedable:true,  tameable:true,  phenotypes:[
+  'Wild Boar':         { category:'Attack Pet', short:'WB', color:'#6a5040', wiki:'https://icarus.wiki.gg/wiki/Boar',              defaultPairs:1, breedable:true,  serum:'Boar Fertility Serum', obtain:'snare', bait:'Wild Boar Bait', baitBiomes:['Forest','Grassland'], phenotypes:[
+    {label:'Wild Boar (base)', weight:2000},
+    {label:'Wild Boar P1', weight:50}, {label:'Wild Boar P2', weight:50},
+    {label:'Wild Boar P3', weight:50}, {label:'Wild Boar P4', weight:50},
+    {label:'Wild Boar P5', weight:50}, {label:'Wild Boar P6', weight:5},
+    {label:'Wild Boar P7', weight:5}]},
+  'Forest Wolf':       { category:'Attack Pet', short:'WO', color:'#708060', wiki:'https://icarus.wiki.gg/wiki/Wolf',              defaultPairs:2, breedable:true,  serum:'Wolf Fertility Serum', obtain:'snare', bait:'Wolf Bait', baitBiomes:['Forest','Grassland'], phenotypes:[
     {label:'Wolf (base)', weight:2000},
     {label:'Wolf P1', weight:50}, {label:'Wolf P2', weight:50},
     {label:'Wolf P3', weight:50}, {label:'Wolf P4', weight:50},
     {label:'Wolf P5', weight:50},
     {label:'Wolf P6', weight:5},  {label:'Wolf P7', weight:5}]},
-  'Storca':            { category:'Attack Pet', short:'SC', color:'#5a8a7a', wiki:'https://icarus.wiki.gg/wiki/Storca',            defaultPairs:1, breedable:false, tameable:true,  phenotypes:[
+  'Storca':            { category:'Attack Pet', short:'SC', color:'#5a8a7a', wiki:'https://icarus.wiki.gg/wiki/Storca',            defaultPairs:1, breedable:false, obtain:'snare', bait:'Storca Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
     {label:'Storca (base)', weight:2000}]},
+  'Kiwi':              { category:'Attack Pet', short:'KW', color:'#9acd32', wiki:'https://icarus.wiki.gg/wiki/Kiwi',              defaultPairs:1, breedable:false, obtain:'snare', bait:'Kiwi Bait', baitBiomes:['Forest','Grassland','Arctic'], baitNote:'at night', phenotypes:[
+    {label:'Kiwi (base)', weight:2000}]},
 
   // ── UTILITY PETS (Livestock) ─────────────────────────────────────
-  'Cattle':            { category:'Utility Pet', short:'CT', color:'#c08840', wiki:'https://icarus.wiki.gg/wiki/Pets',             defaultPairs:2, breedable:true,  tameable:false, phenotypes:[
+  'Cattle':            { category:'Utility Pet', short:'CT', color:'#c08840', wiki:'https://icarus.wiki.gg/wiki/Pets',             defaultPairs:2, breedable:true,  serum:'Bull Fertility Serum', obtain:'station', phenotypes:[
     {label:'Cattle (base)', weight:2000}]},
-  'Chicken':           { category:'Utility Pet', short:'CK', color:'#e8c040', wiki:'https://icarus.wiki.gg/wiki/Pets',            defaultPairs:2, breedable:true,  tameable:false, phenotypes:[
+  'Chicken':           { category:'Utility Pet', short:'CK', color:'#e8c040', wiki:'https://icarus.wiki.gg/wiki/Pets',            defaultPairs:2, breedable:true,  serum:'Rooster Fertility Serum', obtain:'station', phenotypes:[
     {label:'Chicken (base)', weight:2000}]},
-  'Sheep':             { category:'Utility Pet', short:'SH', color:'#d0cac0', wiki:'https://icarus.wiki.gg/wiki/Pets',             defaultPairs:2, breedable:true,  tameable:false, phenotypes:[
+  'Sheep':             { category:'Utility Pet', short:'SH', color:'#d0cac0', wiki:'https://icarus.wiki.gg/wiki/Pets',             defaultPairs:2, breedable:true,  serum:'Ram Fertility Serum', obtain:'station', phenotypes:[
     {label:'Sheep (base)', weight:2000}]},
-  'Pig':               { category:'Utility Pet', short:'PG', color:'#e09080', wiki:'https://icarus.wiki.gg/wiki/Pets#Pig',         defaultPairs:2, breedable:true,  tameable:false, phenotypes:[
+  'Pig':               { category:'Utility Pet', short:'PG', color:'#e09080', wiki:'https://icarus.wiki.gg/wiki/Pets#Pig',         defaultPairs:2, breedable:true,  serum:'Pig Fertility Serum', obtain:'station', phenotypes:[
     {label:'Pig (base)', weight:2000}]}
 };
 
@@ -1266,6 +1289,7 @@ function resetFormUI() {
   // Hide probability comparison panels
   ['pc1', 'pc2'].forEach(id => { const el = $id(id); if (el) el.classList.remove('show'); });
   const pp = $id('prob-panel');      if (pp) pp.classList.remove('show');
+  syncParentFields();  // parent fields may have been shown while editing
   // Reset status selector, name display, and floating panels
   const statusEl = $id('f-status'); if (statusEl) statusEl.value = '?';
   const cwEl = $id('custom-name-warn'); if (cwEl) cwEl.style.display = 'none';
@@ -1369,7 +1393,8 @@ function phenoColor(sp, label) {
 }
 
 // ── STAT HELPERS ─────────────────────────────────────────────────
-const getBreedOut    = sp => goalsMap[sp]?.breedOutStat ?? 'VIG';
+// Only a known stat name is accepted; loaded files can contain anything here
+const getBreedOut    = sp => STATS.includes(goalsMap[sp]?.breedOutStat) ? goalsMap[sp].breedOutStat : 'VIG';
 const getNonBreedOut = sp => STATS.filter(s => s !== getBreedOut(sp));
 const getTotal       = (stats, sp) => getNonBreedOut(sp ?? 'Dune Raptor').reduce((sum, s) => sum + (parseInt(stats[s]) || 0), 0);
 const getMaxTotal    = sp => getNonBreedOut(sp ?? 'Dune Raptor').length * 10;
@@ -1496,7 +1521,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.29c – Goals tab negative-star fix';
+const APP_VERSION  = 'v0.30 – New species, breeding and taming info';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 6;
 
@@ -2473,7 +2498,7 @@ function initGoals() {
     if (!g.goals)        g.goals        = [];   // species-level breeding goals
     if (!g.phenoWeights) g.phenoWeights = {};
     if (!g.blPriority)   g.blPriority   = {};
-    if (!g.breedOutStat) g.breedOutStat = 'VIG';
+    if (!STATS.includes(g.breedOutStat)) g.breedOutStat = 'VIG';
     if (g.reserveTarget  === undefined) g.reserveTarget = 0;
     if (g.statGoal       === undefined) g.statGoal      = 60;
     // Default: Unstable is always a breeding priority (value 2 = ★★) unless user overrides
@@ -3120,12 +3145,26 @@ function updateReserveTarget(sp, val) {
   renderGoals();
 }
 
-/** Returns species names in user-defined order, with any unordered ones appended at end */
+/**
+ * Returns species names in user-defined order. Species missing from the saved order
+ * (for example ones added in a later version) go next to a species of the same category,
+ * so they land inside their category instead of at the very end.
+ */
 function getSpeciesOrder() {
   const keys = Object.keys(SPECIES_DATA);
-  const ordered = speciesOrder.filter(sp => keys.includes(sp));
-  const missing = keys.filter(sp => !ordered.includes(sp));
-  return [...ordered, ...missing];
+  const ordered = [...new Set(speciesOrder)].filter(sp => keys.includes(sp));
+  keys.forEach((sp, i) => {
+    if (ordered.includes(sp)) return;
+    // Anchor only on species of the same category, so a short or old saved order never splits a category
+    const placedSameCat = k => SPECIES_DATA[k].category === SPECIES_DATA[sp].category && ordered.includes(k);
+    const before = keys.slice(0, i).reverse().find(placedSameCat);
+    const after  = keys.slice(i + 1).find(placedSameCat);
+    const at = before !== undefined ? ordered.indexOf(before) + 1
+             : after  !== undefined ? ordered.indexOf(after)
+             : ordered.length;
+    ordered.splice(at, 0, sp);
+  });
+  return ordered;
 }
 
 /** Move species `from` to the position of species `to` in speciesOrder */
@@ -3134,6 +3173,7 @@ function reorderSpecies(from, to) {
   const order = getSpeciesOrder();
   const fi = order.indexOf(from);
   const ti = order.indexOf(to);
+  if (fi < 0 || ti < 0) return;  // something other than a species card was dropped (a link, file or text)
   order.splice(fi, 1);
   order.splice(ti, 0, from);
   speciesOrder = order;
@@ -3363,6 +3403,8 @@ function renderProbPanel() {
   const p1val = $val('f-p1');
   const p2val = $val('f-p2');
   const sp    = $val('f-species');
+  // No odds for an unknown species (for example from a loaded file) or one that cannot be bred
+  if (!SPECIES_DATA[sp] || SPECIES_DATA[sp].breedable === false) { panel.classList.remove('show'); return; }
   const p1 = findParentAnimal(p1val, sp).animal;
   const p2 = findParentAnimal(p2val, sp).animal;
   const hasAny = p1 || p2 || p1val === 'Unknown' || p2val === 'Unknown';
@@ -3466,19 +3508,51 @@ function onSpeciesChange() {
 
   // Show/hide parent fields based on breedable flag
   const breedable = cfg.breedable !== false;
-  const parentRow  = $id('parent-fields-row');
-  const noBreedEl  = $id('no-breed-notice');
   const srcEl      = $id('no-breed-source');
-  if (parentRow) parentRow.style.display = breedable ? '' : 'none';
-  if (noBreedEl) noBreedEl.style.display  = breedable ? 'none' : '';
-  if (srcEl && !breedable) {
-    srcEl.textContent = cfg.tameable === false
-      ? '(Obtained from station or special mission.)'
-      : '(Tame only — breeding not yet available in game.)';
+  if (!breedable && editingId === null) {
+    // Hidden parent fields would otherwise be saved with the new animal
+    ['f-p1', 'f-p2'].forEach(id => { const el = $id(id); if (el) el.value = ''; });
+    ['pc1', 'pc2'].forEach(id => { const el = $id(id); if (el) el.classList.remove('show'); });
+  }
+  syncParentFields();
+  renderProbPanel();  // odds from the previous species must not stay on screen
+  if (srcEl && !breedable) srcEl.textContent = obtainText(cfg);
+  const breedInfo = $id('breed-info');
+  if (breedInfo) {
+    // Unknown species (for example from a loaded file) have no serum, so the line stays hidden
+    const showBreed = breedable && !!cfg.serum;
+    breedInfo.hidden = !showBreed;
+    breedInfo.textContent = showBreed ? `🧬 Breed with ${cfg.serum}. ${obtainText(cfg)}` : '';
   }
 
   buildStatsRow();
   updateName();
+}
+
+/**
+ * Show the parent fields for breedable species, and while editing an animal that already has parents
+ * (so parents recorded earlier stay visible and can be cleared). The "cannot be bred" notice shows otherwise.
+ */
+function syncParentFields() {
+  const breedable = SPECIES_DATA[$val('f-species')]?.breedable !== false;
+  const keepParents = editingId !== null && !!($val('f-p1') || $val('f-p2'));
+  const row = $id('parent-fields-row'), notice = $id('no-breed-notice');
+  if (row)    row.style.display    = breedable || keepParents ? '' : 'none';
+  if (notice) notice.style.display = breedable || keepParents ? 'none' : '';
+}
+
+/** How the first animals of a species are obtained, as one sentence for the New Animal form */
+function obtainText(cfg) {
+  switch (cfg?.obtain) {
+    case 'juvenile': return 'Tamed from a wild juvenile.';
+    case 'snare': {
+      const where = [...(cfg.baitBiomes || []), ...(cfg.baitNote ? [cfg.baitNote] : [])].join(', ');
+      return `Caught with a Snare Trap and ${cfg.bait}${where ? ` (${where})` : ''}.`;
+    }
+    case 'station':  return 'Bought from the station.';
+    case 'mission':  return 'Mission reward.';
+    default:         return '';
+  }
 }
 
 function updateParentDatalist() {
@@ -3844,7 +3918,7 @@ function saveAnimal() {
   resetFormUI();
 
   // For new animals, offer pair placement
-  if (!editingId) showPairAssignPanel(id);
+  if (!wasEditing) showPairAssignPanel(id);
 
   $id('stat-VIG')?.focus();
 }
@@ -4135,6 +4209,7 @@ function editAnimal(id) {
   $id('f-gen').value = a.gen || 1;
   $id('f-p1').value = a.p1 || ''; onParentInput(1);
   $id('f-p2').value = a.p2 || ''; onParentInput(2);
+  syncParentFields();  // the animal's own parents are filled in now
   $id('f-status').value = a.status || '?';
   $id('f-notes').value = a.notes || '';
   const lvlEl = $id('f-level'); if (lvlEl) lvlEl.value = a.level || '';
@@ -5249,8 +5324,8 @@ function renderLineage() {
   const gcol = +ins.avgGain >= 0 ? 'pos' : 'neg';
   const bo = getBreedOut(sp);
   insDiv.innerHTML = `
-    <div class="insights-row"><span class="insights-label">Species</span><span class="insights-val">${sp}</span></div>
-    <div class="insights-row"><span class="insights-label">Breed-out stat</span><span class="insights-val" style="color:var(--red)">${bo}</span></div>
+    <div class="insights-row"><span class="insights-label">Species</span><span class="insights-val">${$h(sp)}</span></div>
+    <div class="insights-row"><span class="insights-label">Breed-out stat</span><span class="insights-val" style="color:var(--red)">${$h(bo)}</span></div>
     <div class="insights-row"><span class="insights-label">Total animals</span><span class="insights-val">${ins.totalCount}</span></div>
     <div class="insights-row"><span class="insights-label">With parent data</span><span class="insights-val">${ins.withParents}</span></div>
     <div class="insights-row"><span class="insights-label">Avg gain/breeding</span><span class="insights-val ${gcol}">${+ins.avgGain>=0?'+':''}${ins.avgGain}</span></div>
@@ -5515,8 +5590,8 @@ initStorage();
 // Species icons for tile display
 const _SP_ICONS = {
   DR:'🦖', GR:'🦎', BM:'🦅', SL:'🦎',  // existing
-  BF:'🦬', AM:'🐦', DV:'🐪', HR:'🐴', TE:'🐂', TK:'🦏', UB:'🦩', WM:'🦣', ZB:'🦓', // mounts
-  GB:'🐀', HY:'🐕', SK:'🦎', SW:'🐺', WB:'🐗', WO:'🐺', SC:'🦖',                    // attack pets
+  BF:'🦬', AM:'🐦', DV:'🐪', HR:'🐴', TE:'🐂', TK:'🦏', UB:'🦩', WM:'🦣', ZB:'🦓', SZ:'🦓', // mounts
+  GB:'🐀', HY:'🐕', SK:'🦎', SW:'🐺', WB:'🐗', WO:'🐺', SC:'🦖', KW:'🥝',           // attack pets
   CT:'🐄', CK:'🐔', SH:'🐑', PG:'🐷',                                                 // utility
 };
 function _spIcon(sp){ const cfg = SPECIES_DATA[sp]; return _SP_ICONS[cfg?.short || ''] || '🐾'; }
