@@ -1,7 +1,11 @@
-# Keeps the SHA-pinned actions in .github/workflows up to date with a weekly pull request
+# Keeps the SHA-pinned actions in .github/workflows up to date with a weekly pull request.
+# Cooldown: a new release is only proposed once it has been public for 7 days, so a fresh or
+# compromised release never lands in a mergeable pull request straight away.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

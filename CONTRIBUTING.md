@@ -91,7 +91,7 @@ git push origin v0.30
 
 Tags are signed. Every released version since v0.2 that has its own commit is tagged, and GitHub offers each one as a download under **Tags**. GitHub Pages publishes `main` automatically.
 
-Pinned GitHub Actions are kept up to date by Dependabot, which opens a pull request when a new release is available.
+Pinned GitHub Actions are kept up to date by Dependabot. It only proposes a release once it has been public for at least 7 days.
 
 ## License
 
