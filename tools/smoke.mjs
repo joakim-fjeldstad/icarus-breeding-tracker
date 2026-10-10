@@ -1,84 +1,17 @@
 // Headless browser smoke test for Icarus Breeding Tracker.
-// Drives the app through the Chrome DevTools protocol with Node's built-in fetch and WebSocket, so it needs no packages.
+// Drives the app through the Chrome DevTools protocol (tools/browser.mjs) with synthetic data (tools/fixtures.mjs); no packages.
 //
 // Usage:  node tools/smoke.mjs [path/to/index.html]    (defaults to index.html in the repository root)
 // Needs:  Node.js 22 or newer, and Chrome, Chromium or Edge. Set CHROME_PATH if the browser is not found.
 // Output: one PASS/FAIL line per check, then a summary. Exit code 1 if any check fails, 2 if the browser cannot start.
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-const BROWSER_CANDIDATES = {
-  win32:  ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-           'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe'],
-  darwin: ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'],
-  linux:  ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'],
-};
-const CHROME = process.env.CHROME_PATH || (BROWSER_CANDIDATES[process.platform] || []).find(p => existsSync(p));
-if (!CHROME) { console.error('No Chrome, Chromium or Edge found. Set CHROME_PATH to the browser executable.'); process.exit(2); }
+import { openPage, sleep } from './browser.mjs';
+import { fx } from './fixtures.mjs';
 
 const page = pathToFileURL(resolve(process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..', 'index.html'))).href;
-const profile = mkdtempSync(join(tmpdir(), 'icarus-smoke-'));
-// Port 0 lets the browser pick a free port and write it to DevToolsActivePort in the profile.
-// CI runners cannot give Chrome a working sandbox; the only page loaded is the app under test.
-const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
-  '--no-first-run', '--window-size=1600,1200', ...(process.env.CI ? ['--no-sandbox'] : []), 'about:blank'], { stdio: 'ignore' });
-let finished = false;
-// Always stop the browser and remove the throwaway profile, however the script ends
-process.on('exit', () => {
-  try { chrome.kill(); } catch { /* already gone */ }
-  try { rmSync(profile, { recursive: true, force: true }); } catch { /* Windows may still hold a lock */ }
-});
-const fail = msg => { console.error(msg); process.exit(2); };
-chrome.on('error', e => fail(`Browser did not start: ${CHROME} (${e.message})`));
-chrome.on('exit', code => { if (!finished) fail(`Browser exited unexpectedly (code ${code}): ${CHROME}`); });
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-// Wait for the port file, then for a page target (the first /json reply can come before the page exists)
-let pageTarget;
-for (let i = 0; i < 75 && !pageTarget; i++) {
-  try {
-    const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0].trim();
-    pageTarget = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t => t.type === 'page');
-  } catch { /* browser not ready yet */ }
-  if (!pageTarget) await sleep(200);
-}
-if (!pageTarget) fail(`Browser did not start: ${CHROME}`);
-const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-await new Promise((res, rej) => { ws.addEventListener('open', res, { once: true }); ws.addEventListener('error', rej, { once: true }); })
-  .catch(() => fail('Could not connect to the browser'));
-// A lost connection ends the run instead of leaving commands waiting forever
-ws.addEventListener('close', () => { if (!finished) fail('Lost the connection to the browser'); });
-let seq = 0; const pending = new Map(); const errors = [];
-ws.addEventListener('message', ev => {
-  const m = JSON.parse(ev.data);
-  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-  if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
-  if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map(a => a.value ?? a.description).join(' '));
-});
-const send = (method, params = {}) => new Promise((res, rej) => {
-  const id = ++seq;
-  const timer = setTimeout(() => { pending.delete(id); rej(new Error(`${method} timed out after 30 s`)); }, 30000);
-  pending.set(id, m => { clearTimeout(timer); res(m); });
-  ws.send(JSON.stringify({ id, method, params }));
-});
-const ev = async expr => {
-  const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
-  if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'eval error');
-  return r.result?.result?.value;
-};
-
-await send('Runtime.enable');
-await send('Page.enable');
-await send('Page.navigate', { url: page });
-// Wait until the app has loaded, instead of a fixed delay
-for (let i = 0; i < 75; i++) {
-  if (await ev(`document.readyState === 'complete' && typeof SPECIES_DATA === 'object'`).catch(() => false)) break;
-  await sleep(200);
-}
-await sleep(300);
+const { ev, errors, close } = await openPage(page);
 
 const results = [];
 const check = (name, ok, detail = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  (' + detail + ')' : ''}`);
@@ -406,35 +339,6 @@ check('updating an animal does not open pair placement', pairPanel === false, St
 
 // ── Import from game (Mounts.json) ──────────────────────────────────────────────────
 // Synthetic fixtures only: the generator below encodes property-tag blobs from scratch.
-const fx = (() => {
-  const enc = new TextEncoder();
-  const fstr = s => { const b = enc.encode(s); const o = new Uint8Array(5 + b.length); new DataView(o.buffer).setInt32(0, b.length + 1, true); o.set(b, 4); return o; };
-  const i32 = n => { const o = new Uint8Array(4); new DataView(o.buffer).setInt32(0, n, true); return o; };
-  const cat = (...p) => { const o = new Uint8Array(p.reduce((s, x) => s + x.length, 0)); let k = 0; for (const x of p) { o.set(x, k); k += x.length; } return o; };
-  const Z16 = new Uint8Array(16), B0 = new Uint8Array([0]);
-  const tag = (name, type, value, header = new Uint8Array(0)) => cat(fstr(name), fstr(type), i32(value.length), i32(0), header, B0, value);
-  const T = {
-    str: (n, v) => tag(n, 'StrProperty', fstr(v)), name: (n, v) => tag(n, 'NameProperty', fstr(v)), int: (n, v) => tag(n, 'IntProperty', i32(v)),
-    bool: (n, v) => cat(fstr(n), fstr('BoolProperty'), i32(0), i32(0), new Uint8Array([v ? 1 : 0]), B0),
-    struct: (n, s, body) => tag(n, 'StructProperty', body, cat(fstr(s), Z16)),
-    unknown: (n, type, bytes) => tag(n, type, bytes),
-    structArray: (n, s, elems) => { const body = cat(...elems); const inner = cat(fstr(n), fstr('StructProperty'), i32(body.length), i32(0), fstr(s), Z16, B0); return tag(n, 'ArrayProperty', cat(i32(elems.length), inner, body), fstr('StructProperty')); },
-  };
-  const props = (...t) => cat(...t, fstr('None'));
-  const genes = ['Vitality', 'Endurance', 'Muscle', 'Agility', 'Toughness', 'Hardiness', 'Utility'];
-  const blob = ({ name = 'A', sex = 1, variation = 0, lineage = 'Wild', mother = '', father = '', stats = [5, 5, 5, 5, 5, 5, 5], aiRow = 'Mount_Moa', version = 3, extra = [] } = {}) => Array.from(props(
-    T.str('MountName', name),
-    T.struct('OwnerCharacterID', 'PlayerCharacterID', props(T.str('PlayerID', 'PLAYERID-SECRET-7777'), T.int('ChrSlot', 0))),
-    T.str('OwnerName', 'OWNERNAME-SECRET'),
-    T.structArray('Genetics', 'MountGeneticsSaveData', genes.map((g, i) => props(T.name('GeneticValueName', g), T.int('Value', stats[i])))),
-    T.int('Sex', sex), T.int('Variation', variation), T.name('Lineage', lineage), T.str('MotherName', mother), T.str('FatherName', father),
-    T.name('AISetupRowName', aiRow), T.int('ActorStateRecorderVersion', version),
-    T.structArray('BoolVariables', 'ActorBoolVariableRecord', [props(T.name('VariableName', 'bIsWildTame'), T.bool('bVariable', false))]),
-    ...extra));
-  const file = list => JSON.stringify({ SavedMounts: list.map((a, i) => ({ DatabaseGUID: 'noguid', RecorderBlob: { ComponentClassName: 'X', BinaryData: blob(a) },
-    MountName: a.name ?? 'A', MountLevel: a.level ?? 1, MountType: a.type || 'Moa', MountIconName: String(1000 + i) })) });
-  return { T, props, blob, file, cat, fstr, i32 };
-})();
 
 // Parser: round trip and hostile input, all inside the page
 const parseCase = (label, bytes) => ev(`(() => { try { parseMountBlob(${JSON.stringify(Array.from(bytes))}); return 'ok'; } catch (e) { return e instanceof MountParseError ? 'ParseError' : 'other: ' + e.message; } })()`);
@@ -643,13 +547,6 @@ const v5 = await ev(`(() => { try {
     goals: { 'Swamp Raptor': { goals: [], pairs: [] } } }); migrateMemory();
   return { sp: animals[0].sp, ph: animals[0].ph, pairs: pairCounts['Geothermal Raptor'], keys: Object.keys(phenoStats['Geothermal Raptor'] || {}).sort().join('|'), bl: blStats['Geothermal Raptor']?.Wild?.tamed, width: cardWidths['Geothermal Raptor'], old: 'Swamp Raptor' in pairCounts || 'Swamp Raptor' in phenoStats, error: '' }; } catch (e) { return { error: e.message }; } })()`);
 check('a v5 file keeps its Swamp Raptor pair count, sightings and card width under the new name', !v5.error && v5.sp === 'Geothermal Raptor' && v5.ph === 'Geothermal P3' && v5.pairs === 3 && v5.keys === 'Geothermal P3|Geothermal Raptor (base)' && v5.bl === 2 && v5.width === 'wide' && !v5.old, JSON.stringify(v5));
-const notHerd = await ev(`(async () => { try {
-  const before = { mode: storageMode, handle: fileHandle, n: animals.length };
-  const fake = { name: 'Mounts.json', getFile: async () => ({ text: async () => '{"SavedMounts":[]}' }) };
-  const _p = window.showOpenFilePicker; window.showOpenFilePicker = async () => [fake];
-  await openExistingFile(); window.showOpenFilePicker = _p;
-  return { same: storageMode === before.mode && fileHandle === before.handle && animals.length === before.n, toast: document.getElementById('toast').textContent, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('opening a file without a herd list adopts nothing and changes nothing', !notHerd.error && notHerd.same && /not a herd file/.test(notHerd.toast), JSON.stringify(notHerd));
 check('legacy phenotype labels and bloodline case are migrated, a v4 file with bad goals loads', !legacy.error && legacy.ph === 'Geothermal P2' && legacy.bl === 'Wild' && legacy.goalPh === 'Geothermal P3' && legacy.weightKey === 'Geothermal P2' && legacy.v4goals === '[{"bl":"Wild","ph":""}]', JSON.stringify(legacy));
 const csvGuard = await ev(`JSON.stringify([csvField('\\t=1+1'), csvField('\\r=1'), csvField('=1'), csvField('plain')])`);
 check('CSV export guards a leading tab or CR like a formula', csvGuard === JSON.stringify(['"\'\t=1+1"', '"\'\r=1"', '"\'=1"', '"plain"']), csvGuard);
@@ -660,7 +557,4 @@ console.log(results.join('\n'));
 const failed = results.filter(r => r.startsWith('FAIL')).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
-finished = true;
-ws.close(); chrome.kill();
-// Give Chrome a moment to release its files; the exit handler then removes the profile
-await new Promise(r => { chrome.once('exit', r); setTimeout(r, 3000); });
+await close();
