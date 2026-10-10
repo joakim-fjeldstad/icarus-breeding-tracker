@@ -30,7 +30,9 @@ Implements #13, based on the species research in #7 (wiki, patch notes, the game
 - **Lineage insights escape the species and breed-out stat** — a crafted herd file could otherwise inject HTML there. A breed-out stat loaded from a file is now only used if it is one of the seven known stats, everywhere it is read
 
 ### Fixes
-- **New species land in their category** — if you have reordered the species cards, species added in a new version now appear next to their neighbours instead of at the end of the list
+- **New species land in their category** — if you have reordered the species cards, species added in a new version now appear inside their own category instead of at the end of the list. Duplicate entries in a saved order are ignored
+- **Dropping a link or text on a species card no longer moves a species** — only species cards reorder the list
+- **No breeding odds for species that cannot be bred** — switching a new entry to such a species clears the parent fields. Animals that already have parents keep them, and the fields stay visible when you edit the animal
 - **No "Breed with undefined"** — the serum line in the New Animal form only shows for species that have a serum
 
 ### README

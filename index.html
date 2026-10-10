@@ -1149,7 +1149,7 @@ const SPECIES_DATA = {
     {label:'Woolly Mammoth (base)', weight:2000}]},
   'Zebra':             { category:'Mount',      short:'ZB', color:'#a0a0a0', wiki:'https://icarus.wiki.gg/wiki/Zebra',             defaultPairs:1, breedable:false, obtain:'mission', phenotypes:[
     {label:'Zebra (base)', weight:2000}]},
-  'Shaggy Zebra':      { category:'Mount',      short:'SZ', color:'#c8bca8', wiki:'https://icarus.wiki.gg/wiki/Shaggy_Zebra',      defaultPairs:1, breedable:false, obtain:'juvenile', phenotypes:[
+  'Shaggy Zebra':      { category:'Mount',      short:'SZ', color:'#80ffdb', wiki:'https://icarus.wiki.gg/wiki/Shaggy_Zebra',      defaultPairs:1, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Shaggy Zebra (base)', weight:2000}]},
 
   // ── ATTACK PETS ─────────────────────────────────────────────────
@@ -1179,7 +1179,7 @@ const SPECIES_DATA = {
     {label:'Wolf P6', weight:5},  {label:'Wolf P7', weight:5}]},
   'Storca':            { category:'Attack Pet', short:'SC', color:'#5a8a7a', wiki:'https://icarus.wiki.gg/wiki/Storca',            defaultPairs:1, breedable:false, obtain:'snare', bait:'Storca Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
     {label:'Storca (base)', weight:2000}]},
-  'Kiwi':              { category:'Attack Pet', short:'KW', color:'#8a6a40', wiki:'https://icarus.wiki.gg/wiki/Kiwi',              defaultPairs:1, breedable:false, obtain:'snare', bait:'Kiwi Bait', baitBiomes:['Forest','Grassland','Arctic'], baitNote:'at night', phenotypes:[
+  'Kiwi':              { category:'Attack Pet', short:'KW', color:'#9acd32', wiki:'https://icarus.wiki.gg/wiki/Kiwi',              defaultPairs:1, breedable:false, obtain:'snare', bait:'Kiwi Bait', baitBiomes:['Forest','Grassland','Arctic'], baitNote:'at night', phenotypes:[
     {label:'Kiwi (base)', weight:2000}]},
 
   // ── UTILITY PETS (Livestock) ─────────────────────────────────────
@@ -1289,6 +1289,9 @@ function resetFormUI() {
   // Hide probability comparison panels
   ['pc1', 'pc2'].forEach(id => { const el = $id(id); if (el) el.classList.remove('show'); });
   const pp = $id('prob-panel');      if (pp) pp.classList.remove('show');
+  // Parent fields may have been shown while editing an animal of a non-breedable species
+  const pr = $id('parent-fields-row');
+  if (pr) pr.style.display = SPECIES_DATA[$val('f-species')]?.breedable === false ? 'none' : '';
   // Reset status selector, name display, and floating panels
   const statusEl = $id('f-status'); if (statusEl) statusEl.value = '?';
   const cwEl = $id('custom-name-warn'); if (cwEl) cwEl.style.display = 'none';
@@ -3146,15 +3149,22 @@ function updateReserveTarget(sp, val) {
 
 /**
  * Returns species names in user-defined order. Species missing from the saved order
- * (for example ones added in a later version) go right after the species before them
- * in SPECIES_DATA, so they land inside their category instead of at the very end.
+ * (for example ones added in a later version) go next to a species of the same category,
+ * so they land inside their category instead of at the very end.
  */
 function getSpeciesOrder() {
   const keys = Object.keys(SPECIES_DATA);
-  const ordered = speciesOrder.filter(sp => keys.includes(sp));
-  // keys[i-1] is always in `ordered` here, because earlier keys were placed in previous iterations
+  const ordered = [...new Set(speciesOrder)].filter(sp => keys.includes(sp));
   keys.forEach((sp, i) => {
-    if (!ordered.includes(sp)) ordered.splice(i === 0 ? 0 : ordered.indexOf(keys[i - 1]) + 1, 0, sp);
+    if (ordered.includes(sp)) return;
+    // Anchor only on species of the same category, so a short or old saved order never splits a category
+    const placedSameCat = k => SPECIES_DATA[k].category === SPECIES_DATA[sp].category && ordered.includes(k);
+    const before = keys.slice(0, i).reverse().find(placedSameCat);
+    const after  = keys.slice(i + 1).find(placedSameCat);
+    const at = before !== undefined ? ordered.indexOf(before) + 1
+             : after  !== undefined ? ordered.indexOf(after)
+             : ordered.length;
+    ordered.splice(at, 0, sp);
   });
   return ordered;
 }
@@ -3165,6 +3175,7 @@ function reorderSpecies(from, to) {
   const order = getSpeciesOrder();
   const fi = order.indexOf(from);
   const ti = order.indexOf(to);
+  if (fi < 0 || ti < 0) return;  // something other than a species card was dropped (a link, file or text)
   order.splice(fi, 1);
   order.splice(ti, 0, from);
   speciesOrder = order;
@@ -3394,6 +3405,7 @@ function renderProbPanel() {
   const p1val = $val('f-p1');
   const p2val = $val('f-p2');
   const sp    = $val('f-species');
+  if (SPECIES_DATA[sp]?.breedable === false) { panel.classList.remove('show'); return; }
   const p1 = findParentAnimal(p1val, sp).animal;
   const p2 = findParentAnimal(p2val, sp).animal;
   const hasAny = p1 || p2 || p1val === 'Unknown' || p2val === 'Unknown';
@@ -3502,6 +3514,12 @@ function onSpeciesChange() {
   const srcEl      = $id('no-breed-source');
   if (parentRow) parentRow.style.display = breedable ? '' : 'none';
   if (noBreedEl) noBreedEl.style.display  = breedable ? 'none' : '';
+  if (!breedable && editingId === null) {
+    // Hidden parent fields would otherwise be saved with the new animal
+    ['f-p1', 'f-p2'].forEach(id => { const el = $id(id); if (el) el.value = ''; });
+    ['pc1', 'pc2'].forEach(id => { const el = $id(id); if (el) el.classList.remove('show'); });
+    renderProbPanel();
+  }
   if (srcEl && !breedable) srcEl.textContent = obtainText(cfg);
   const breedInfo = $id('breed-info');
   if (breedInfo) {
@@ -4183,6 +4201,8 @@ function editAnimal(id) {
   $id('f-gen').value = a.gen || 1;
   $id('f-p1').value = a.p1 || ''; onParentInput(1);
   $id('f-p2').value = a.p2 || ''; onParentInput(2);
+  // Animals recorded with parents before their species was marked not breedable keep them visible and editable
+  if (SPECIES_DATA[a.sp]?.breedable === false && (a.p1 || a.p2)) $id('parent-fields-row').style.display = '';
   $id('f-status').value = a.status || '?';
   $id('f-notes').value = a.notes || '';
   const lvlEl = $id('f-level'); if (lvlEl) lvlEl.value = a.level || '';
