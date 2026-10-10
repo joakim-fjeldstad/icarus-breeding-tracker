@@ -1392,7 +1392,8 @@ function phenoColor(sp, label) {
 }
 
 // ── STAT HELPERS ─────────────────────────────────────────────────
-const getBreedOut    = sp => goalsMap[sp]?.breedOutStat ?? 'VIG';
+// Only a known stat name is accepted; loaded files can contain anything here
+const getBreedOut    = sp => STATS.includes(goalsMap[sp]?.breedOutStat) ? goalsMap[sp].breedOutStat : 'VIG';
 const getNonBreedOut = sp => STATS.filter(s => s !== getBreedOut(sp));
 const getTotal       = (stats, sp) => getNonBreedOut(sp ?? 'Dune Raptor').reduce((sum, s) => sum + (parseInt(stats[s]) || 0), 0);
 const getMaxTotal    = sp => getNonBreedOut(sp ?? 'Dune Raptor').length * 10;
@@ -2496,7 +2497,7 @@ function initGoals() {
     if (!g.goals)        g.goals        = [];   // species-level breeding goals
     if (!g.phenoWeights) g.phenoWeights = {};
     if (!g.blPriority)   g.blPriority   = {};
-    if (!g.breedOutStat) g.breedOutStat = 'VIG';
+    if (!STATS.includes(g.breedOutStat)) g.breedOutStat = 'VIG';
     if (g.reserveTarget  === undefined) g.reserveTarget = 0;
     if (g.statGoal       === undefined) g.statGoal      = 60;
     // Default: Unstable is always a breeding priority (value 2 = ★★) unless user overrides
@@ -3504,8 +3505,10 @@ function onSpeciesChange() {
   if (srcEl && !breedable) srcEl.textContent = obtainText(cfg);
   const breedInfo = $id('breed-info');
   if (breedInfo) {
-    breedInfo.hidden = !breedable;
-    breedInfo.textContent = breedable ? `🧬 Breed with ${cfg.serum}. ${obtainText(cfg)}` : '';
+    // Unknown species (for example from a loaded file) have no serum, so the line stays hidden
+    const showBreed = breedable && !!cfg.serum;
+    breedInfo.hidden = !showBreed;
+    breedInfo.textContent = showBreed ? `🧬 Breed with ${cfg.serum}. ${obtainText(cfg)}` : '';
   }
 
   buildStatsRow();
@@ -5294,8 +5297,8 @@ function renderLineage() {
   const gcol = +ins.avgGain >= 0 ? 'pos' : 'neg';
   const bo = getBreedOut(sp);
   insDiv.innerHTML = `
-    <div class="insights-row"><span class="insights-label">Species</span><span class="insights-val">${sp}</span></div>
-    <div class="insights-row"><span class="insights-label">Breed-out stat</span><span class="insights-val" style="color:var(--red)">${bo}</span></div>
+    <div class="insights-row"><span class="insights-label">Species</span><span class="insights-val">${$h(sp)}</span></div>
+    <div class="insights-row"><span class="insights-label">Breed-out stat</span><span class="insights-val" style="color:var(--red)">${$h(bo)}</span></div>
     <div class="insights-row"><span class="insights-label">Total animals</span><span class="insights-val">${ins.totalCount}</span></div>
     <div class="insights-row"><span class="insights-label">With parent data</span><span class="insights-val">${ins.withParents}</span></div>
     <div class="insights-row"><span class="insights-label">Avg gain/breeding</span><span class="insights-val ${gcol}">${+ins.avgGain>=0?'+':''}${ins.avgGain}</span></div>
