@@ -1846,6 +1846,7 @@ async function continueWithStoredFile() {
     if (perm !== 'granted') { showToast('Permission denied'); return; }
     const text = await (await handle.getFile()).text();
     let _pd; try { _pd = JSON.parse(text); } catch { showToast('Invalid save file — JSON could not be parsed'); return; }
+    if (!_isHerdFile(_pd)) { showToast('This is not a herd file (no herd list). Nothing was opened or changed.'); return; }
     applyData(_pd);
     fileHandle  = handle;
     storageMode = 'file';
@@ -1856,6 +1857,9 @@ async function continueWithStoredFile() {
   }
 }
 
+/** A herd file has a herd list; any other JSON (for example the game's Mounts.json) must never be adopted as the save file */
+function _isHerdFile(d) { return !!d && typeof d === 'object' && !Array.isArray(d) && Array.isArray(d.herd); }
+
 async function openExistingFile() {
   try {
     const [handle] = await window.showOpenFilePicker({
@@ -1863,6 +1867,7 @@ async function openExistingFile() {
     });
     const text = await (await handle.getFile()).text();
     let _pd2; try { _pd2 = JSON.parse(text); } catch { showToast('Invalid save file — JSON could not be parsed'); return; }
+    if (!_isHerdFile(_pd2)) { showToast('This is not a herd file (no herd list). Nothing was opened or changed.'); return; }
     applyData(_pd2);
     fileHandle  = handle;
     storageMode = 'file';
