@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.31 – Import from the game
+**2026-10-10**
+
+Implements #11. The game keeps every animal parked at the station in `Mounts.json`; the tracker can now read that file so you no longer type stats by hand.
+
+### Import from game
+- **New button under Settings, Export & Import:** pick `Mounts.json` from `%LOCALAPPDATA%\Icarus\Saved\PlayerData\<SteamID>\`. The file is only read, never changed
+- **Preview before anything is saved:** new animals, changed fields (old and new value, each one can be unticked), unchanged animals, animals marked as on the station that are not in the file (choose to leave them, set `?` or set Dead), and skipped entries with the reason
+- **What is imported:** species, sex, bloodline, phenotype, the seven stats, parents, level and the in-game name (as nickname). Only animals parked at the station are in the file
+- **Matching:** an animal whose in-game name starts with its tracker ID (`DR12 ...`) is recognised as that animal, also with the old `SR` code for Geothermal Raptor. Animals imported earlier are recognised by their nickname. Importing the same file twice adds nothing
+- **Parents** are linked to animals imported in the same run, then to herd animals by name, and otherwise kept as the in-game name
+- **After a change is applied** the generated tracker name is refreshed, and parent links that used the old name follow it. New animals count towards the phenotype and bloodline sightings
+- **Game facts used:** the save writes `Fierce` for the bloodline shown as Unstable (`D_GeneticLineages`); horse coats come from the AI row (`_A1` Brown, `_A2` Black, `_A3` White, from the workshop items); `Variation` is the position in the game's phenotype list. Cat, Dog and Blueback are skipped as unknown species
+
+### Security
+- The parser for the game's binary record format checks every length and offset, skips unknown property types by their declared size, stops on anything negative or oversized, and never decodes the owner name or player ID. Files over 25 MB are rejected before they are read. No write API is used anywhere in the import
+
+---
+
 ## v0.30 – New species, breeding and taming info
 **2026-10-10**
 

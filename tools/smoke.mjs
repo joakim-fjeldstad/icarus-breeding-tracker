@@ -404,6 +404,172 @@ const pairPanel = await ev(`(() => {
   dismissPairAssign(); return shown; })()`).catch(e => 'error: ' + e.message.split('\n')[0]);
 check('updating an animal does not open pair placement', pairPanel === false, String(pairPanel));
 
+// ── Import from game (Mounts.json) ──────────────────────────────────────────────────
+// Synthetic fixtures only: the generator below encodes property-tag blobs from scratch.
+const fx = (() => {
+  const enc = new TextEncoder();
+  const fstr = s => { const b = enc.encode(s); const o = new Uint8Array(5 + b.length); new DataView(o.buffer).setInt32(0, b.length + 1, true); o.set(b, 4); return o; };
+  const i32 = n => { const o = new Uint8Array(4); new DataView(o.buffer).setInt32(0, n, true); return o; };
+  const cat = (...p) => { const o = new Uint8Array(p.reduce((s, x) => s + x.length, 0)); let k = 0; for (const x of p) { o.set(x, k); k += x.length; } return o; };
+  const Z16 = new Uint8Array(16), B0 = new Uint8Array([0]);
+  const tag = (name, type, value, header = new Uint8Array(0)) => cat(fstr(name), fstr(type), i32(value.length), i32(0), header, B0, value);
+  const T = {
+    str: (n, v) => tag(n, 'StrProperty', fstr(v)), name: (n, v) => tag(n, 'NameProperty', fstr(v)), int: (n, v) => tag(n, 'IntProperty', i32(v)),
+    bool: (n, v) => cat(fstr(n), fstr('BoolProperty'), i32(0), i32(0), new Uint8Array([v ? 1 : 0]), B0),
+    struct: (n, s, body) => tag(n, 'StructProperty', body, cat(fstr(s), Z16)),
+    unknown: (n, type, bytes) => tag(n, type, bytes),
+    structArray: (n, s, elems) => { const body = cat(...elems); const inner = cat(fstr(n), fstr('StructProperty'), i32(body.length), i32(0), fstr(s), Z16, B0); return tag(n, 'ArrayProperty', cat(i32(elems.length), inner, body), fstr('StructProperty')); },
+  };
+  const props = (...t) => cat(...t, fstr('None'));
+  const genes = ['Vitality', 'Endurance', 'Muscle', 'Agility', 'Toughness', 'Hardiness', 'Utility'];
+  const blob = ({ name = 'A', sex = 1, variation = 0, lineage = 'Wild', mother = '', father = '', stats = [5, 5, 5, 5, 5, 5, 5], aiRow = 'Mount_Moa', version = 3, extra = [] } = {}) => Array.from(props(
+    T.str('MountName', name),
+    T.struct('OwnerCharacterID', 'PlayerCharacterID', props(T.str('PlayerID', 'PLAYERID-SECRET-7777'), T.int('ChrSlot', 0))),
+    T.str('OwnerName', 'OWNERNAME-SECRET'),
+    T.structArray('Genetics', 'MountGeneticsSaveData', genes.map((g, i) => props(T.name('GeneticValueName', g), T.int('Value', stats[i])))),
+    T.int('Sex', sex), T.int('Variation', variation), T.name('Lineage', lineage), T.str('MotherName', mother), T.str('FatherName', father),
+    T.name('AISetupRowName', aiRow), T.int('ActorStateRecorderVersion', version),
+    T.structArray('BoolVariables', 'ActorBoolVariableRecord', [props(T.name('VariableName', 'bIsWildTame'), T.bool('bVariable', false))]),
+    ...extra));
+  const file = list => JSON.stringify({ SavedMounts: list.map((a, i) => ({ DatabaseGUID: 'noguid', RecorderBlob: { ComponentClassName: 'X', BinaryData: blob(a) },
+    MountName: a.name ?? 'A', MountLevel: a.level ?? 1, MountType: a.type || 'Moa', MountIconName: String(1000 + i) })) });
+  return { T, props, blob, file, cat, fstr, i32 };
+})();
+
+// Parser: round trip and hostile input, all inside the page
+const parseCase = (label, bytes) => ev(`(() => { try { parseMountBlob(${JSON.stringify(Array.from(bytes))}); return 'ok'; } catch (e) { return e instanceof MountParseError ? 'ParseError' : 'other: ' + e.message; } })()`);
+const rt = await ev(`(() => { const t = parseMountBlob(${JSON.stringify(fx.blob({ name: 'BM01 F42-Wild', sex: 1, variation: 3, lineage: 'Bold', mother: 'M', father: 'F', stats: [1, 2, 3, 4, 5, 6, 7] }))});
+  return { name: t.MountName, sex: t.Sex, v: t.Variation, lin: t.Lineage, m: t.MotherName, f: t.FatherName, g: t.Genetics.length, g2: t.Genetics[2].GeneticValueName + t.Genetics[2].Value, wild: t.BoolVariables[0].bVariable, ver: t.ActorStateRecorderVersion, owner: 'OwnerName' in t, pid: 'OwnerCharacterID' in t }; })()`);
+check('mount parser round trip', rt.name === 'BM01 F42-Wild' && rt.sex === 1 && rt.v === 3 && rt.lin === 'Bold' && rt.m === 'M' && rt.f === 'F' && rt.g === 7 && rt.g2 === 'Muscle3' && rt.wild === false && rt.ver === 3, JSON.stringify(rt));
+check('mount parser never decodes owner name or player ID', rt.owner === false && rt.pid === false, JSON.stringify(rt));
+const trunc = await ev(`(() => { const full = ${JSON.stringify(fx.blob())}; const bad = [];
+  for (let n = 0; n < full.length; n++) { try { parseMountBlob(full.slice(0, n)); } catch (e) { if (!(e instanceof MountParseError)) bad.push(n + ':' + e.message); } } return bad; })()`);
+check('mount parser contains truncation at every offset', trunc.length === 0, trunc.slice(0, 3).join(' | '));
+check('mount parser rejects a negative string length', await parseCase('neg', fx.cat(fx.i32(-5000000), new Uint8Array(8))) === 'ParseError');
+check('mount parser rejects a negative tag size', await parseCase('neg size', fx.cat(fx.fstr('X'), fx.fstr('IntProperty'), fx.i32(-1), fx.i32(0), new Uint8Array([0]), fx.i32(1))) === 'ParseError');
+check('mount parser rejects a huge tag size', await parseCase('huge', fx.cat(fx.fstr('X'), fx.fstr('IntProperty'), fx.i32(0x7fffffff), fx.i32(0), new Uint8Array([0]), fx.i32(1))) === 'ParseError');
+check('mount parser rejects a huge array count', await parseCase('huge arr', fx.cat(fx.fstr('X'), fx.fstr('ArrayProperty'), fx.i32(8), fx.i32(0), fx.fstr('IntProperty'), new Uint8Array([0]), fx.i32(0x7ffffff0), fx.i32(0))) === 'ParseError');
+const unk = await ev(`(() => { const t = parseMountBlob(${JSON.stringify(Array.from(fx.props(fx.T.unknown('Weird', 'FancyProperty', new Uint8Array([9, 9, 9, 9, 9])), fx.T.int('Sex', 2))))}); return t.Weird && t.Weird.opaque === 'FancyProperty' && t.Sex === 2; })()`);
+check('mount parser skips an unknown property type by its size', unk === true);
+const proto = await ev(`(() => { const t = parseMountBlob(${JSON.stringify(Array.from(fx.props(fx.T.str('__proto__', 'x'), fx.T.str('constructor', 'y'), fx.T.name('Lineage', '__proto__'))))});
+  return Object.getPrototypeOf(t) === null && t['__proto__'] === 'x' && ({}).polluted === undefined && t.Lineage === '__proto__'; })()`);
+check('mount parser is safe against __proto__ names', proto === true);
+let deep = fx.props(fx.T.int('V', 1)); for (let i = 0; i < 40; i++) deep = fx.props(fx.T.struct('S', 'Nest', deep));
+check('mount parser rejects deep nesting', await parseCase('deep', deep) === 'ParseError');
+const fuzz = await ev(`(() => { const base = ${JSON.stringify(fx.blob())}; let seed = 42; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; const bad = [];
+  for (let k = 0; k < 500; k++) { const b = base.slice(); for (let j = 0; j < 1 + Math.floor(rnd() * 6); j++) b[Math.floor(rnd() * b.length)] = Math.floor(rnd() * 256);
+    try { parseMountBlob(b); } catch (e) { if (!(e instanceof MountParseError)) bad.push(k + ':' + e.message); } } return bad; })()`);
+check('mount parser survives 500 random mutations', fuzz.length === 0, fuzz.slice(0, 3).join(' | '));
+check('mount parser rejects a blob over the size cap', await ev(`(() => { try { parseMountBlob(new Array(MOUNT_BLOB_MAX_BYTES + 1).fill(0)); return 'ok'; } catch (e) { return e instanceof MountParseError ? 'ParseError' : 'other'; } })()`) === 'ParseError');
+
+// Plan and apply on the seeded herd. The herd is snapshotted first and restored at the end of this block
+await ev(`window.__snap = JSON.stringify(getAllData()); true`);
+await ev(`(() => { animals.forEach(a => { a.nickname = ''; });
+  const b = animals.find(x => x.sp === 'Slinker'); b.nickname = 'Bucephalus'; b.status = 'Station';
+  const z = animals.find(x => x.sp === 'Shaggy Zebra' && x.status === 'Station'); z.nickname = 'Oldie';
+  animals[3].id = 1234.5678;                                   // a float id, as real herd files have
+  saveAndRefreshFull(); return true; })()`);
+const seedInfo = await ev(`(() => { const a = animals.find(x => x.sp === 'Dune Raptor' && x.status !== 'Dead'); const b = animals.find(x => x.sp === 'Slinker'); const g = animals.find(x => x.sp === 'Geothermal Raptor');
+  const moa = animals.find(x => x.sp === 'Moa'); const z = animals.find(x => x.nickname === 'Oldie'); const otherStation = animals.find(x => x.status === 'Station' && x.sp !== 'Slinker' && x.sp !== 'Shaggy Zebra');
+  return { aId: formatSpId(a.sp, a.spId), aSex: a.sex, aStats: STATS.map(s => a.stats[s]), aPh: SPECIES_DATA[a.sp].phenotypes.findIndex(p => p.label === a.ph), aBl: a.bl, aName: a.name, aAnimalId: a.id,
+    bSp: b.sp, bSex: b.sex, bStats: STATS.map(s => b.stats[s]), bPh: SPECIES_DATA[b.sp].phenotypes.findIndex(p => p.label === b.ph), bBl: b.bl, bName: b.name, bNick: b.nickname, bId: b.id,
+    gId: g.spId, gName: g.name, gSex: g.sex, gStats: STATS.map(s => g.stats[s]), gBl: g.bl, moaName: moa.name, zId: z.id, otherStationId: otherStation.id, station: animals.filter(x => x.status === 'Station').length }; })()`);
+const typeOf = sp => ({ 'Dune Raptor': 'Raptor_Desert', 'Geothermal Raptor': 'Raptor', Moa: 'Moa', Slinker: 'Slinker', Buffalo: 'Buffalo', 'Arctic Moa': 'Arctic_Moa', Draven: 'Chew', Horse: 'Horse_Standard', Terrenus: 'Horse', Tusker: 'Tusker', Ubis: 'SwampBird', 'Woolly Mammoth': 'WoollyMammoth', Zebra: 'Zebra', 'Shaggy Zebra': 'WoolyZebra', Gribbler: 'Tundra_Monkey', Hyena: 'Desert_Wolf', Skulk: 'Orka', 'Snow Wolf': 'Snow_Wolf', 'Wild Boar': 'Wild_Boar', 'Forest Wolf': 'Wolf', Storca: 'Storca', Kiwi: 'Kiwi', Cattle: 'Bull', Chicken: 'Chicken', Sheep: 'Sheep', Pig: 'Pig' })[sp];
+const bl2 = l => l === 'Unstable' ? 'Fierce' : l;
+const PWN = '<img src=x id=pwn5 onerror="window.__pwned5=1">|pipe';
+const entries = [
+  // 1: tracker ID in the name, one stat and the bloodline differ -> Changed (level 12 is filled in silently)
+  { name: `${seedInfo.aId} something`, type: 'Raptor_Desert', sex: seedInfo.aSex === 'F' ? 1 : 2, variation: seedInfo.aPh, lineage: 'Fierce', stats: seedInfo.aStats.map((v, i) => i === 0 ? (v + 1) % 11 : v), level: 12 },
+  // 2: nickname match on a Station animal, identical -> Unchanged
+  { name: seedInfo.bNick, type: typeOf(seedInfo.bSp), sex: seedInfo.bSex === 'F' ? 1 : 2, variation: seedInfo.bPh, lineage: bl2(seedInfo.bBl), stats: seedInfo.bStats, level: 0 },
+  // 3: legacy SR code for Geothermal Raptor, identical -> Unchanged
+  { name: `SR${String(seedInfo.gId).padStart(2, '0')} old name`, type: 'Raptor', sex: seedInfo.gSex === 'F' ? 1 : 2, variation: 0, lineage: bl2(seedInfo.gBl), stats: seedInfo.gStats, level: 0 },
+  // 4: new Moa; mother is entry 5 (same file), father is a herd Moa by tracker name
+  { name: 'Rex', type: 'Moa', sex: 2, variation: 7, lineage: 'Fierce', mother: 'Mum', father: seedInfo.moaName, stats: [1, 2, 3, 4, 5, 6, 7], level: 30 },
+  // 5: new Moa, parent of 4; mother is entry 9 (listed later), father names a Dune Raptor (another species: ignored)
+  { name: 'Mum', type: 'Moa', sex: 1, variation: 0, lineage: 'Alpha', mother: 'Gran', father: seedInfo.aName, stats: [9, 9, 9, 9, 9, 9, 9], level: 0 },
+  // 6: new black Horse (coat from the AI row)
+  { name: 'Shadow', type: 'Horse_Standard', sex: 2, variation: 0, lineage: 'Wild', aiRow: 'Mount_Horse_Standard_A2', stats: [2, 2, 2, 2, 2, 2, 2] },
+  // 7: same tracker ID as animal 1 but different data -> new, keeps the in-game name as nickname
+  { name: `${seedInfo.aId} twin`, type: 'Raptor_Desert', sex: 1, variation: 1, lineage: 'Bold', stats: [3, 3, 3, 3, 3, 3, 3], level: 0 },
+  // 8: hostile name with markup and a pipe, also as a parent name
+  { name: PWN, type: 'Moa', sex: 1, variation: 2, lineage: 'Timid', mother: PWN, stats: [4, 4, 4, 4, 4, 4, 4] },
+  // 9: grandparent of 4, listed after its child
+  { name: 'Gran', type: 'Moa', sex: 1, variation: 0, lineage: 'Hardy', stats: [8, 8, 8, 8, 8, 8, 8] },
+  // 10 and 11: unnamed identical siblings
+  { name: '', type: 'Moa', sex: 2, variation: 0, lineage: 'Wild', stats: [6, 6, 6, 6, 6, 6, 6] },
+  { name: '', type: 'Moa', sex: 2, variation: 0, lineage: 'Wild', stats: [6, 6, 6, 6, 6, 6, 6] },
+  // skipped: unknown species, no bloodline (matches the station Shaggy Zebra nicknamed Oldie), newer version
+  { name: 'Kitty', type: 'Cat', sex: 1, lineage: 'Wild' },
+  { name: 'Oldie', type: 'WoolyZebra', sex: 1, lineage: 'None' },
+  { name: 'Future', type: 'Moa', sex: 1, lineage: 'Wild', version: 4 },
+];
+const mountsText = fx.file(entries);
+// The twin listed before the real animal must not take its place
+const reversed = fx.file([entries[6], entries[0]]);
+const order = await ev(`(() => { const p = planMountImport(${JSON.stringify(reversed)}); return { changed: p.changed.map(x => x.c.gameName), added: p.added.map(r => r.c.gameName) }; })()`);
+check('mount matching does not depend on file order', order.changed.join() === `${seedInfo.aId} something` && order.added.join() === `${seedInfo.aId} twin`, JSON.stringify(order));
+
+await ev(`window.__plan = planMountImport(${JSON.stringify(mountsText)}); true`);
+const plan = await ev(`(() => { const p = window.__plan; return { total: p.total, added: p.added.map(r => r.c.gameName), changed: p.changed.map(x => x.diffs.map(d => d.field + ':' + d.from + '>' + d.to)), unchanged: p.unchanged.map(x => x.c.gameName),
+  skipped: p.skipped.map(s => s.gameName + ': ' + s.reason), nif: p.notInFile.map(a => a.id), horse: p.added.find(r => r.c.gameName === 'Shadow')?.c.ph, rexBl: p.added.find(r => r.c.gameName === 'Rex')?.c.bl }; })()`);
+check('mount preview groups new, changed, unchanged and skipped', plan.total === 14 && plan.added.join('/') === `Rex/Mum/Shadow/${seedInfo.aId} twin/${PWN}/Gran//` && plan.changed.length === 1 && plan.unchanged.join() === `${seedInfo.bNick},SR${String(seedInfo.gId).padStart(2, '0')} old name`, JSON.stringify(plan));
+check('mount preview lists each changed field and fills a missing level silently', plan.changed[0]?.length === 2 && plan.changed[0].some(d => d.startsWith('VIG:')) && plan.changed[0].some(d => d.endsWith('>Unstable')) && !plan.changed[0].some(d => d.startsWith('level:')), JSON.stringify(plan.changed));
+check('mount preview skips with a reason', plan.skipped.length === 3 && /unknown species/.test(plan.skipped[0]) && /no bloodline/.test(plan.skipped[1]) && /unsupported save format \(version 4, expected 3\)/.test(plan.skipped[2]), plan.skipped.join(' | '));
+check('mount preview flags station animals missing from the file, not matched or skipped ones', plan.nif.includes(seedInfo.otherStationId) && !plan.nif.includes(seedInfo.bId) && !plan.nif.includes(seedInfo.zId) && plan.nif.length === seedInfo.station - 2, `${plan.nif.length} of ${seedInfo.station}`);
+check('mount import maps Fierce to Unstable and horse rows to coats', plan.rexBl === 'Unstable' && plan.horse === 'Black', `${plan.rexBl}, ${plan.horse}`);
+const applied = await ev(`(() => { const p = window.__plan; const before = animals.length; const dead = p.notInFile[0].id;
+  const choices = { addIdx: new Set(p.added.map((_, i) => i)), diffKeys: new Set(p.changed.flatMap(x => x.diffs.map(d => x.a.id + '|' + d.field))), stationAll: false, notInFile: new Map([[dead, 'Dead']]) };
+  const r = applyMountImport(p, choices);
+  const byNick = n => animals.find(a => a.nickname === n);
+  const rex = byNick('Rex'), mum = byNick('Mum'), gran = byNick('Gran'), shadow = byNick('Shadow'), twin = animals.find(a => / twin$/.test(a.nickname || '')), pwn = byNick(${JSON.stringify(PWN)}), a1 = p.changed[0].a;
+  const unnamed = animals.slice(before).filter(a => !a.nickname);
+  return { r, grew: animals.length - before, rexName: rex.name, rexP1: rex.p1, rexP2: rex.p2, rexGen: rex.gen, rexLevel: rex.level, rexStatus: rex.status, rexBred: rex.isBred,
+    mumName: mum.name, mumP1: mum.p1, mumP2: mum.p2, mumGen: mum.gen, mumLevel: mum.level, mumBred: mum.isBred, granName: gran.name, granGen: gran.gen,
+    shadowPh: shadow.ph, twinOk: !!twin && twin.spId !== a1.spId, pwnOk: !!pwn && pwn.p1 === ${JSON.stringify(PWN)}, unnamed: unnamed.length,
+    a1Vig: a1.stats.VIG, a1Bl: a1.bl, a1Level: a1.level, a1Name: a1.name, a1Expected: computeName(a1.sp, a1.sex, a1.bl, a1.ph, a1.stats, a1.spId), a1Old: ${JSON.stringify(seedInfo.aName)},
+    deadNow: animals.find(a => a.id === dead).status, idsUnique: new Set(animals.map(a => a.sp + '#' + a.spId)).size === animals.length,
+    sightings: (phenoStats.Moa?.[rex.ph]?.bred || 0) >= 1 && (blStats.Moa?.Hardy?.tamed || 0) >= 1 }; })()`);
+check('mount import adds the ticked animals with nickname, status and level', applied.grew === 8 && applied.r.added === 8 && /^BM\d+ /.test(applied.rexName) && applied.rexStatus === 'Station' && applied.rexLevel === 30 && applied.mumLevel === undefined && applied.idsUnique && applied.twinOk && applied.unnamed === 2, JSON.stringify(applied));
+check('mount import resolves parents in the file, in the herd, and ignores another species', applied.rexP1 === applied.mumName && applied.rexP2 === seedInfo.moaName && applied.mumP1 === applied.granName && applied.mumP2 === '' && applied.rexBred === true && applied.mumBred === true && applied.pwnOk, JSON.stringify(applied));
+check('mount import settles generations whatever the file order', applied.granGen === 1 && applied.mumGen === 2 && applied.rexGen === 3, `${applied.granGen}, ${applied.mumGen}, ${applied.rexGen}`);
+check('mount import applies ticked changes, refreshes the generated name and status choices', applied.a1Vig === (seedInfo.aStats[0] + 1) % 11 && applied.a1Bl === 'Unstable' && applied.a1Level === 12 && applied.a1Name === applied.a1Expected && applied.a1Name !== applied.a1Old && applied.shadowPh === 'Black' && applied.deadNow === 'Dead' && plan.nif.length > 0, JSON.stringify(applied));
+check('mount import records sightings for new animals', applied.sightings === true);
+const again = await ev(`(() => { const p = planMountImport(${JSON.stringify(mountsText)}); return { added: p.added.length, changed: p.changed.length, unchanged: p.unchanged.length }; })()`);
+check('importing the same game file again adds nothing', again.added === 0 && again.changed === 0 && again.unchanged === 11, JSON.stringify(again));
+const leak = await ev(`JSON.stringify(getAllData()).includes('SECRET')`);
+check('owner name and player ID never reach the herd data', leak === false);
+// The hostile name must stay text everywhere it is shown: preview, herd table, lineage tree, CSV
+const hostile = await ev(`(() => { showMountPreview(window.__plan, 'Mounts.json'); const box = document.getElementById('mount-preview'); const inPreview = box.textContent.includes(${JSON.stringify(PWN)}); box.parentElement.remove();
+  renderHerd(); const pwn = animals.find(a => a.nickname === ${JSON.stringify(PWN)});
+  let lterr = ''; try { const t = buildLineageTree(pwn.name, 0, 3); document.body.insertAdjacentHTML('beforeend', '<div id=lt5>' + renderTreeRecursive(t) + '</div>'); document.getElementById('lt5').remove(); } catch (e) { lterr = e.message; }
+  const csv = typeof csvField === 'function' ? csvField(pwn.nickname) : '';
+  return { inPreview, pwned: !!(window.__pwned5 || document.getElementById('pwn5')), lterr, csvQuoted: csv === '' || csv.startsWith('"') }; })()`);
+check('a hostile in-game name stays text in the preview, herd table, lineage and CSV', hostile.inPreview && !hostile.pwned && !hostile.lterr && hostile.csvQuoted, JSON.stringify(hostile));
+const tooBig = await ev(`(() => { const f = new File(['{}'], 'Mounts.json'); Object.defineProperty(f, 'size', { value: MOUNT_FILE_MAX_BYTES + 1 }); let read = false; const _fr = FileReader.prototype.readAsText; FileReader.prototype.readAsText = function () { read = true; };
+  importMounts({ target: { files: [f], value: '' } }); FileReader.prototype.readAsText = _fr; return { read, toast: document.getElementById('toast').textContent }; })()`);
+check('mount import rejects an oversized file before reading it', tooBig.read === false && /too large/.test(tooBig.toast), JSON.stringify(tooBig));
+const badJson = await ev(`(() => { try { planMountImport('{"nope":1}'); return 'no error'; } catch (e) { return e.message; } })()`);
+check('mount import explains a file without SavedMounts', /SavedMounts/.test(badJson), badJson);
+const tooMany = await ev(`(() => { try { planMountImport(JSON.stringify({ SavedMounts: new Array(MOUNT_MAX_ENTRIES + 1).fill({}) })); return 'no error'; } catch (e) { return e.message; } })()`);
+check('mount import rejects a file with too many entries before parsing', /Too many/.test(tooMany), tooMany);
+const importSrc = readFileSync(fileURLToPath(page), 'utf8').split('// ── IMPORT FROM GAME')[1]?.split('function clearAllData')[0] || '';
+check('mount import path uses no write APIs', importSrc.length > 1000 && !/createWritable|showSaveFilePicker|showDirectoryPicker/.test(importSrc), `${importSrc.length} chars`);
+// Confirm through the modal itself: untick one new animal, mark one missing animal Dead
+await ev(`applyData(JSON.parse(window.__snap)); migrateMemory(); animals.find(x => x.sp === 'Slinker').nickname = 'Bucephalus'; animals.find(x => x.sp === 'Slinker').status = 'Station'; animals.find(x => x.sp === 'Shaggy Zebra' && x.status === 'Station').nickname = 'Oldie'; animals[3].id = 1234.5678; saveAndRefreshFull(); true`);
+const viaUi = await ev(`(() => { const p = planMountImport(${JSON.stringify(mountsText)}); const before = animals.length; const nif = p.notInFile.length;
+  showMountPreview(p, 'Mounts.json'); const box = document.getElementById('mount-preview'); const txt = box.textContent;
+  const has = /New \\(8\\)/.test(txt) && /Changed \\(1\\)/.test(txt) && /Unchanged \\(2\\)/.test(txt) && /Skipped \\(3\\)/.test(txt);
+  const boxes = [...box.querySelectorAll('input[type=checkbox]')]; const sels = box.querySelectorAll('select');
+  boxes.find(b => b.dataset.key === 'add|0').checked = false;                       // skip Rex
+  const sel = [...sels].find(s => s.dataset.key === 'nif|' + p.notInFile[0].id); sel.value = 'Dead';
+  [...box.querySelectorAll('button')].find(b => b.textContent === 'Confirm import').click();
+  const gone = !document.getElementById('mount-preview');
+  const dead = animals.find(a => a.id === p.notInFile[0].id).status;
+  return { has, sels: sels.length === nif, nif, grew: animals.length - before, rex: !!animals.find(a => a.nickname === 'Rex'), gone, dead, toast: document.getElementById('toast').textContent }; })()`);
+check('mount preview renders counts and choices, and Confirm applies what is ticked', viaUi.has && viaUi.sels && viaUi.nif > 0 && viaUi.grew === 7 && !viaUi.rex && viaUi.gone && viaUi.dead === 'Dead' && /Imported 7 animals/.test(viaUi.toast), JSON.stringify(viaUi));
+await ev(`applyData(JSON.parse(window.__snap)); migrateMemory(); saveAndRefreshFull(); true`);
+
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));
 const failed = results.filter(r => r.startsWith('FAIL')).length;
