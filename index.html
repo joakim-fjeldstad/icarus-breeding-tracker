@@ -1606,7 +1606,8 @@ function applyData(d) {
 
   // Maps: only accept plain objects, not arrays or primitives
   const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
-  pairsMap   = isObj(d.pairs)      ? d.pairs      : {};
+  // Pair slots hold two names; anything else in the file becomes an empty slot list
+  pairsMap   = isObj(d.pairs) ? Object.fromEntries(Object.entries(d.pairs).map(([k, v]) => [k, Array.isArray(v) ? v.map(p => ({ m: _sanitizeStr(p?.m), f: _sanitizeStr(p?.f) })) : []])) : {};
   goalsMap   = isObj(d.goals)      ? d.goals      : {};
   pairCounts = isObj(d.pairCounts) ? d.pairCounts : {};
   nextSpAid  = isObj(d.nextSpAid)  ? d.nextSpAid  : {};
@@ -1729,23 +1730,27 @@ function migrateMemory() {
       if (a.ph && a.ph.startsWith('Swamp Raptor')) { a.ph = a.ph.replace('Swamp Raptor', 'Geothermal Raptor'); dirty = true; }
     });
     // Migrate pairsMap keys
-    if (pairsMap[OLD]) { pairsMap[NEW] = pairsMap[OLD]; delete pairsMap[OLD]; dirty = true; }
+    for (const m of [pairsMap, pairCounts, phenoStats, blStats, cardWidths]) if (m && m[OLD] !== undefined) { if (m[NEW] === undefined) m[NEW] = m[OLD]; delete m[OLD]; dirty = true; }
     // Migrate goalsMap keys
     if (goalsMap[OLD]) { goalsMap[NEW] = goalsMap[OLD]; delete goalsMap[OLD]; dirty = true; }
   }
 
   // ── v6 → v7: 'Swamp Pn' labels on Geothermal Raptor (v0.26 to v0.27b) become 'Geothermal Pn' ──
   if (loadedDataVersion < 7) {
-    const GEO = 'Geothermal Raptor', fix = l => (typeof l === 'string' ? l.replace(/^Swamp P(\d)$/, 'Geothermal P$1') : l);
+    const GEO = 'Geothermal Raptor', fix = l => (typeof l === 'string' ? l.replace(/^Swamp P(\d)$/, 'Geothermal P$1').replace(/^Swamp Raptor \(base\)$/, 'Geothermal Raptor (base)') : l);
     animals.forEach(a => { if (a.sp === GEO) { const l = fix(a.ph); if (l !== a.ph) { a.ph = l; dirty = true; } } });
     const g = goalsMap[GEO];
     if (g && typeof g === 'object' && !Array.isArray(g)) {
       if (Array.isArray(g.goals)) g.goals.forEach(gl => { if (gl && typeof gl === 'object') { const l = fix(gl.ph); if (l !== gl.ph) { gl.ph = l; dirty = true; } } });
       if (g.phenoWeights && typeof g.phenoWeights === 'object') for (const k of Object.keys(g.phenoWeights)) { const l = fix(k); if (l !== k) { g.phenoWeights[l] = g.phenoWeights[k]; delete g.phenoWeights[k]; dirty = true; } }
     }
+    const ps = phenoStats[GEO];
+    if (ps && typeof ps === 'object') for (const k of Object.keys(ps)) { const l = fix(k); if (l !== k) { ps[l] = ps[k]; delete ps[k]; dirty = true; } }
   }
 
   // ── Always-run baseline: fill required fields on all animals ──────
+  // Reserve every ID in use first, so an animal without one never gets a taken number
+  animals.forEach(a => { if (a.spId) { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, a.spId + 1); } });
   animals.forEach(a => {
     if (!a.stats)           a.stats  = {};
     if (a.id === undefined) { a.id   = Date.now() + Math.random(); dirty = true; }
@@ -2357,7 +2362,7 @@ function showOptimizeModal(sp) {
           const fD = fA
             ? `<span style="color:#ff88aa">♀ ${$h(displayName(fA))}</span><span style="color:#555;font-size:10px"> (${getTotal(fA.stats, plan.sp)})</span>${fConfl}`
             : '<span style="color:#555">— empty —</span>';
-          const badge = p.goalLabel ? `<span class="opt-goal-badge">${p.goalLabel}</span>` : '';
+          const badge = p.goalLabel ? `<span class="opt-goal-badge">${$h(p.goalLabel)}</span>` : '';
           const pi = planIndexOf(plan);
           return `<div class="opt-pair-row"><span class="opt-pair-num">${i+1}</span><span class="opt-pair-names">${mD} × ${fD}${badge}</span><button class="btn-sm" style="font-size:10px;padding:1px 8px;margin-left:auto" onclick="applyOptimizeSinglePair(${pi},${i},this)">Apply</button></div>`;
         }).join('')
@@ -2532,6 +2537,7 @@ function initGoals() {
     const g = goalsMap[sp];
     if (!Array.isArray(g.pairs))  g.pairs        = [];   // kept for pair-slot count tracking
     if (!Array.isArray(g.goals))  g.goals        = [];   // species-level breeding goals
+    g.goals = g.goals.filter(gl => gl && typeof gl === 'object').map(gl => ({ bl: _validBloodline(gl.bl), ph: _validPhenotype(sp, gl.ph) }));
     if (!isObj(g.phenoWeights))   g.phenoWeights = {};
     if (!isObj(g.blPriority))     g.blPriority   = {};
     if (!STATS.includes(g.breedOutStat)) g.breedOutStat = 'VIG';
@@ -3644,7 +3650,7 @@ function onParentInput(n) {
       }).filter(Boolean);
       if (deltas.length) deltaStr = `<div class="pc-delta">vs child: ${deltas.join(' ')}</div>`;
     }
-    const idStr = parent.spId ? ` <span style="color:#4a5a7a;font-size:10px">${formatSpId(parent.sp, parent.spId)}</span>` : '';
+    const idStr = parent.spId ? ` <span style="color:#4a5a7a;font-size:10px">${$h(formatSpId(parent.sp, parent.spId))}</span>` : '';
     div.innerHTML = `<span class="pc-name">${$h(parent.name)}</span>${idStr}
       <span style="color:var(--dim);font-size:10px">${$h(parent.bl)} · ${getTotal(parent.stats, parent.sp)}/${getMaxTotal(parent.sp)}</span>
       <div class="pc-stats">${statsStr}</div>${deltaStr}`;
@@ -4882,7 +4888,7 @@ function viewAnimal(id) {
         const sexSym = sex === 'M' ? '♂' : '♀';
         pairSlotsHtml += `<div class="view-pair-slot">
           <span style="color:var(--dim);min-width:110px">${tsp !== a.sp ? `[${SPECIES_DATA[tsp]?.short||tsp}] ` : ''}Pair ${i+1} ${sexSym}</span>
-          <span style="flex:1;font-size:11px">${slotLabel} <span style="color:var(--dim)">× ${partner}</span></span>
+          <span style="flex:1;font-size:11px">${$h(slotLabel)} <span style="color:var(--dim)">× ${$h(partner)}</span></span>
           <button class="btn-sm" style="font-size:10px;padding:1px 8px;${btnStyle}" ${btnAction}>${btnLabel}</button>
         </div>`;
       });
@@ -5292,7 +5298,7 @@ function renderNodeHTML(node, showInh) {
       return `<span class="inh-cell" style="color:${srcC[src]}">${s}<sup>${srcS[src]}</sup>${diff !== 0 ? `<sub style="font-size:9px">${diff>0?'+':''}${diff}</sub>` : ''}</span>`;
     }).join(' ')}</div><div class="inh-legend">f=mom m=dad ^=improved v=regressed ~=blended sub=diff from avg</div>`;
   }
-  const idStr  = a?.spId ? ` ${formatSpId(a.sp, a.spId)}` : '';
+  const idStr  = a?.spId ? ` ${$h(formatSpId(a.sp, a.spId))}` : '';
   const dispT  = a ? getTotal(a.stats, a.sp) : '';
   const maxT3  = a ? getMaxTotal(a.sp) : '';
   const inHerdTag = node.inHerd
@@ -6136,7 +6142,7 @@ function _buildPairTile(a, sp, pairIdx, sex, makeBadge) {
     style="--ph-border:${phRarityCol}"
     onclick="viewAnimal(${a.id})"
   ><span class="tile-icon">${_spIcon(a.sp)}</span
-  ><span class="tile-name">${tileId}</span
+  ><span class="tile-name">${$h(tileId)}</span
   ><span class="tile-bl-badge" style="color:${blCol};border-color:${blCol}">${$h(a.bl)}</span
   ><span class="tile-stat">${tot}</span
   >${goalMark}<button class="tile-rm" onclick="event.stopPropagation();updatePair('${rmSp}',${pairIdx},'${rmSex}','')">✕</button
@@ -6159,7 +6165,7 @@ function _buildPoolTile(a, sp) {
     title="${$esc(a.name)} · ${$h(a.bl)} · ${tot}"
     style="--ph-border:${phRarityCol}"
   ><span class="tile-icon">${_spIcon(a.sp)}</span
-  ><span class="tile-name">${tileId}</span
+  ><span class="tile-name">${$h(tileId)}</span
   ><span class="tile-bl-badge" style="color:${blCol};border-color:${blCol}">${$h(a.bl)}</span
   ><span class="tile-stat">${tot}</span
   ></div>`;

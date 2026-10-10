@@ -19,9 +19,11 @@ Implements #8 and #9.
 - **Phenotype and bloodline counts use null-prototype maps**, so a file with `__proto__` as a value cannot touch `Object.prototype`
 - **Star scores in breeding suggestions are escaped**
 - **Control characters are dropped from loaded text** (tab and newline stay), and the CSV export guards a leading tab or carriage return as well as `=`, `+`, `-` and `@`
-- **Only known bloodlines and phenotypes are kept** — a bloodline is matched regardless of case, an unknown phenotype label is cleared, and `Swamp Pn` labels from v0.26 to v0.27b are renamed to `Geothermal Pn` (data version 7)
+- **CSV import** now ignores a row whose bloodline is not one of the game's twelve (the count is shown in the toast) and clears an unknown phenotype, like the file load path
+- **Pair slots, goals and the optimiser** only show escaped text from the file: pair slot names, goal labels and animal names without a space could run script before
+- **Only known bloodlines and phenotypes are kept** — a bloodline is matched regardless of case, an unknown phenotype label is cleared, and `Swamp Raptor` phenotype labels from before v0.28 are renamed to the Geothermal labels, together with the species' pair count, sightings and card width from before v0.26 (data version 7)
 - **Animals with an unknown species are kept and flagged** in My Herd, so a file from another version does not lose animals. Their species and phenotype text is escaped wherever it is shown; before this version a crafted file could run script through the species cell
-- **Duplicate IDs are flagged** in My Herd. Older files can hold two animals with the same ID (the Swamp Raptor rename merged two counters); the badge marks every animal that shares an ID, including dead or stationed ones that are hidden by default
+- **Duplicate IDs are flagged** in My Herd. Older files can hold two animals with the same ID (the Swamp Raptor rename merged two counters); the badge appears on every visible animal that shares an ID, also when its twin is dead or on the station and hidden. Animals without an ID get a free one
 
 ---
 

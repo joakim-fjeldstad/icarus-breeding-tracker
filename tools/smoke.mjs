@@ -620,6 +620,29 @@ const legacy = await ev(`(() => { try {
   const r1 = { ph: a.ph, bl: a.bl, goalPh: g.goals[0].ph, weightKey: Object.keys(g.phenoWeights).join() };
   applyData({ version: 4, herd: [], goals: { Moa: { goals: 'no', pairs: [{ bl: 'Wild' }, 7] } } }); migrateMemory();
   return { ...r1, v4goals: JSON.stringify(goalsMap.Moa.goals), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+const PWN7 = '<img/src/onerror="window.__pwned7=1"/id=pwn7>';
+const sinks = await ev(`(() => { try {
+  applyData({ version: 7, herd: [
+      { id: 1, spId: 1, sp: 'Moa', sex: 'M', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: ${JSON.stringify(PWN7)}, status: '?', notes: '' },
+      { id: 2, spId: 2, sp: 'Moa', sex: 'F', bl: 'Alpha', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'BM02 F30-Alpha', status: '?', notes: '' },
+      { id: 3, spId: 0, sp: 'Pig', sex: 'M', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'No Id', status: '?', notes: '' },
+      { id: 4, spId: 1, sp: 'Pig', sex: 'F', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'PG01', status: '?', notes: '' }],
+    pairs: { Moa: [{ m: ${JSON.stringify(PWN7)}, f: '' }, { m: 'x', f: 'y' }], Slinker: 5 }, nextSpAid: { PG: 1 },
+    goals: { Moa: { goals: [{ bl: ${JSON.stringify(PWN7)}, ph: ${JSON.stringify(PWN7)} }, { bl: 'alpha', ph: '' }] } } });
+  migrateMemory();
+  showTab('pairs'); renderPairs(); const pairsImg = !!document.querySelector('#tab-pairs img');
+  viewAnimal(2); const viewerImg = !!document.getElementById('pwn7'); closeViewPanel();
+  showOptimizeModal('Moa'); const optImg = !!document.querySelector('.opt-modal img'); closeOptimizeModal();
+  setAdviceStatus(2, 'Reserve');
+  const pigs = animals.filter(a => a.sp === 'Pig').map(a => a.spId);
+  return { pairsImg, viewerImg, optImg, goals: JSON.stringify(goalsMap.Moa.goals), slinker: JSON.stringify(pairsMap.Slinker), pigs, pwned: !!window.__pwned7, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('pair tiles, viewer slots and optimiser goals escape file text; bad pairs and spId 0 are tolerated', !sinks.error && !sinks.pairsImg && !sinks.viewerImg && !sinks.optImg && !sinks.pwned && sinks.goals === '[{"bl":"","ph":""},{"bl":"Alpha","ph":""}]' && /^\[/.test(sinks.slinker) && sinks.pigs.length === 2 && sinks.pigs[0] !== sinks.pigs[1] && sinks.pigs.every(n => n > 0), JSON.stringify(sinks));
+const v5 = await ev(`(() => { try {
+  applyData({ version: 5, herd: [{ id: 1, spId: 1, sp: 'Swamp Raptor', sex: 'F', bl: 'Wild', ph: 'Swamp P3', gen: 1, p1: '', p2: '', stats: {}, name: 'Old', status: '?', notes: '' }],
+    pairCounts: { 'Swamp Raptor': 3 }, phenoStats: { 'Swamp Raptor': { 'Swamp P3': { tamed: 2, bred: 0 }, 'Swamp Raptor (base)': { tamed: 1, bred: 0 } } }, blStats: { 'Swamp Raptor': { Wild: { tamed: 2, bred: 0 } } }, cardWidths: { 'Swamp Raptor': 'wide' },
+    goals: { 'Swamp Raptor': { goals: [], pairs: [] } } }); migrateMemory();
+  return { sp: animals[0].sp, ph: animals[0].ph, pairs: pairCounts['Geothermal Raptor'], keys: Object.keys(phenoStats['Geothermal Raptor'] || {}).sort().join('|'), bl: blStats['Geothermal Raptor']?.Wild?.tamed, width: cardWidths['Geothermal Raptor'], old: 'Swamp Raptor' in pairCounts || 'Swamp Raptor' in phenoStats, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a v5 file keeps its Swamp Raptor pair count, sightings and card width under the new name', !v5.error && v5.sp === 'Geothermal Raptor' && v5.ph === 'Geothermal P3' && v5.pairs === 3 && v5.keys === 'Geothermal P3|Geothermal Raptor (base)' && v5.bl === 2 && v5.width === 'wide' && !v5.old, JSON.stringify(v5));
 check('legacy phenotype labels and bloodline case are migrated, a v4 file with bad goals loads', !legacy.error && legacy.ph === 'Geothermal P2' && legacy.bl === 'Wild' && legacy.goalPh === 'Geothermal P3' && legacy.weightKey === 'Geothermal P2' && legacy.v4goals === '[{"bl":"Wild","ph":""}]', JSON.stringify(legacy));
 const csvGuard = await ev(`JSON.stringify([csvField('\\t=1+1'), csvField('\\r=1'), csvField('=1'), csvField('plain')])`);
 check('CSV export guards a leading tab or CR like a formula', csvGuard === JSON.stringify(['"\'\t=1+1"', '"\'\r=1"', '"\'=1"', '"plain"']), csvGuard);
