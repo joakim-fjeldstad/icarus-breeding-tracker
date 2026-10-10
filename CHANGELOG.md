@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.30 – New species, breeding and taming info
+**2026-10-10**
+
+Implements #13, based on the species research in #7 (wiki, patch notes, the game's data tables and in-game checks).
+
+### New species
+- **Shaggy Zebra** [SZ] — mount, tamed from a wild juvenile, base phenotype only
+- **Kiwi** [KW] — attack pet, caught with a Snare Trap and Kiwi Bait (Forest, Grassland, Arctic, at night)
+
+### Breeding
+- **Breedable now means a fertility serum exists in game** — the New Animal form names the serum to use, for example "Breed with Moa Fertility Serum"
+- **Gribbler and Wild Boar are breedable** — the New Animal form now shows parent fields for them
+- **Draven and Terrenus are not breedable** — there is no serum for them, so the parent fields are hidden, as for other non-breedable species. Existing animals and pairs are not changed
+
+### Phenotypes
+- **Tusker** now has 7 phenotypes, **Ubis** 8 and **Wild Boar** 8, with weights from the game data
+- **Buffalo P5** is legendary (weight 5), matching the game
+
+### How each species is obtained
+- The New Animal form shows how the first animals are obtained: tamed from a wild juvenile, caught with a Snare Trap and a named bait in named biomes, bought from the station, or a mission reward
+- Replaces the two generic texts ("obtained from station or special mission" and "tame only")
+
+### Fixes
+- **New species land in their category** — if you have reordered the species cards, species added in a new version now appear next to their neighbours instead of at the end of the list
+
+### README
+- **Species reference** updated from 4 to all 26 species, with how to get them and how to breed them
+
+---
+
 ## v0.29c – Goals tab negative-star fix
 **2026-10-10**
 
