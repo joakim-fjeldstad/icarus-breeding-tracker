@@ -116,6 +116,7 @@ button{cursor:pointer;border:none;border-radius:4px;font-size:12px;}
 .name-output .copy-status.show{display:block;}
 .entry-card{background:var(--panel);border:1px solid var(--bdr);border-radius:8px;padding:16px;max-width:960px;}
 .entry-card h2{color:var(--acc);font-size:14px;margin-bottom:14px;letter-spacing:1px;text-transform:uppercase;}
+.herd-flag{color:#e74c3c;margin-left:4px;}
 .advice-panel,.prob-panel{background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:12px 14px;margin:8px 0;display:none;}
 .advice-panel.show,.prob-panel.show{display:block;}
 .prob-panel{border-color:#1a3a5a;}
@@ -1529,7 +1530,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.31 – Import from the game';
+const APP_VERSION  = 'v0.31b – Fixes for the optimiser, advice panel and shared files';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 6;
 
@@ -1559,7 +1560,18 @@ function getAllData() {
 /** Sanitise a plain-text string from user data — strip to string, cap length */
 function _sanitizeStr(v, maxLen = 200) {
   if (v === null || v === undefined) return '';
-  return String(v).slice(0, maxLen);
+  // Control characters are dropped (newlines stay, for notes): some spreadsheets read a leading tab or CR as a formula start
+  return String(v).replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '').slice(0, maxLen);
+}
+
+/** A bloodline from a file is kept only if the game has it; anything else becomes empty (the name still shows the text) */
+function _validBloodline(v) { const s = _sanitizeStr(v, 20); return BLOODLINES.includes(s) ? s : ''; }
+/** A phenotype is kept only if it is one of the species' labels; an unknown species keeps the text as plain text */
+function _validPhenotype(sp, v) {
+  const s = _sanitizeStr(v);
+  const cfg = Object.hasOwn(SPECIES_DATA, sp) ? SPECIES_DATA[sp] : null;
+  if (!cfg) return s;
+  return cfg.phenotypes.some(p => p.label === s) ? s : '';
 }
 
 function applyData(d) {
@@ -1573,8 +1585,8 @@ function applyData(d) {
     spId:     typeof a.spId === 'number' ? a.spId : 0,
     sp:       _sanitizeStr(a.sp),
     sex:      _sanitizeStr(a.sex, 1),
-    bl:       _sanitizeStr(a.bl),
-    ph:       _sanitizeStr(a.ph),
+    bl:       _validBloodline(a.bl),
+    ph:       _validPhenotype(a.sp, a.ph),
     gen:      typeof a.gen === 'number' ? a.gen : 1,
     p1:       _sanitizeStr(a.p1),
     p2:       _sanitizeStr(a.p2),
@@ -1686,6 +1698,7 @@ function migrateMemory() {
   // ── v4 → v5: migrate per-pair goals → species goals ──────────────
   if (loadedDataVersion < 5) {
     for (const [sp, g] of Object.entries(goalsMap || {})) {
+      if (!g || typeof g !== 'object' || Array.isArray(g)) continue;   // initGoals() replaces it with defaults
       if (!g.goals) g.goals = [];
       // Move any non-empty per-pair bl/ph entries into species goals
       if (Array.isArray(g.pairs)) {
@@ -2377,8 +2390,6 @@ function showOptimizeModal(sp) {
     </div>
   </div>`;
   document.body.appendChild(overlay);
-  // Draw radar polygon on the view panel canvas
-  _drawViewRadar(a.stats, bo, STATS);
 }
 
 
@@ -2499,13 +2510,15 @@ function applyOptimizePlan(applyStatuses) {
 }
 
 function initGoals() {
+  const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
   for (const [sp, cfg] of Object.entries(SPECIES_DATA)) {
-    if (!goalsMap[sp]) goalsMap[sp] = {};
+    // A shared file can carry anything here; a bad entry becomes defaults rather than blanking the tab
+    if (!isObj(goalsMap[sp])) goalsMap[sp] = {};
     const g = goalsMap[sp];
-    if (!g.pairs)        g.pairs        = [];   // kept for pair-slot count tracking
-    if (!g.goals)        g.goals        = [];   // species-level breeding goals
-    if (!g.phenoWeights) g.phenoWeights = {};
-    if (!g.blPriority)   g.blPriority   = {};
+    if (!Array.isArray(g.pairs))  g.pairs        = [];   // kept for pair-slot count tracking
+    if (!Array.isArray(g.goals))  g.goals        = [];   // species-level breeding goals
+    if (!isObj(g.phenoWeights))   g.phenoWeights = {};
+    if (!isObj(g.blPriority))     g.blPriority   = {};
     if (!STATS.includes(g.breedOutStat)) g.breedOutStat = 'VIG';
     if (g.reserveTarget  === undefined) g.reserveTarget = 0;
     if (g.statGoal       === undefined) g.statGoal      = 60;
@@ -2788,7 +2801,7 @@ function renderSuggestions(sp) {
       const tot = getTotal(animal.stats, sp);
       const blScore = blP[animal.bl] ?? 0;
       const phScore = phW[animal.ph] ?? 0;
-      const traitWarning = blScore < 0 ? `${$h(animal.bl)} (${blScore}★)` : phScore < 0 ? `${$h(animal.ph)} (${phScore}★)` : '';
+      const traitWarning = blScore < 0 ? `${$h(animal.bl)} (${$h(blScore)}★)` : phScore < 0 ? `${$h(animal.ph)} (${$h(phScore)}★)` : '';
       html += `<div class="suggestion-row">
         <span class="sug-badge" style="color:#e74c3c">${STATUS_ICON[animal.status] || ''} ${animal.sex === 'M' ? '♂' : '♀'} ${tot}</span>
         <div class="sug-animal"><span class="view-name-link" onclick="viewAnimal(${animal.id})">${$h(animal.name)}</span><br>
@@ -2972,7 +2985,7 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
   // Count directly from animals[] so dead animals are included (status filter: exclude only Discard)
   const spKey = sp.replace(/[^a-zA-Z0-9]/g, '_');
   const spAllAnimals = animals.filter(a => a.sp === sp && a.status !== 'Discard');
-  const phCountMap = {};
+  const phCountMap = Object.create(null);   // keyed by values from the herd file
   spAllAnimals.forEach(a => {
     const key = a.ph || cfg.phenotypes[0]?.label || '';
     if (!phCountMap[key]) phCountMap[key] = { tamed: 0, bred: 0 };
@@ -2982,7 +2995,7 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
   const phSightingRadar = `<canvas id="sph_radar_${spKey}" width="280" height="220" class="ph-sight-radar"></canvas>`;
 
   // ── Bloodline sightings ──
-  const blCountMap = {};
+  const blCountMap = Object.create(null);
   spAllAnimals.forEach(a => {
     if (!a.bl) return;
     if (!blCountMap[a.bl]) blCountMap[a.bl] = { tamed: 0, bred: 0 };
@@ -4112,9 +4125,12 @@ function renderHerd() {
   }
   empty.style.display = 'none';
 
+  // IDs used more than once (older files merged two counters): flagged so the player can renumber
+  const idSeen = new Map();
+  animals.forEach(a => { const k = `${a.sp}#${a.spId}`; idSeen.set(k, (idSeen.get(k) || 0) + 1); });
   tbody.innerHTML = list.map(a => {
     const spCfg    = SPECIES_DATA[a.sp] || {};
-    const dot      = `<span class="species-dot" style="background:${spCfg.color||'#888'}"></span>`;
+    const dot      = `<span class="species-dot" style="background:${spCfg.color||'#888'}"></span>` + (SPECIES_DATA[a.sp] ? '' : '<span class="aid-badge herd-flag" title="This species is not in this version of the tracker. Edit the animal to fix it, or delete it.">unknown species</span>');
     const blCls    = a.bl === 'Unstable' ? 'bl-unstable' : a.bl === 'Alpha' ? 'bl-alpha' : '';
     const bo       = getBreedOut(a.sp);
     const dispTotal = getTotal(a.stats, a.sp);
@@ -4132,7 +4148,7 @@ function renderHerd() {
     const tempBadge    = a.status === 'Temp' ? '<span style="color:var(--tmp);font-size:10px;margin-left:4px">⚡</span>' : '';
     const deadStyle    = a.status === 'Dead' ? 'opacity:.4;text-decoration:line-through;' : '';
     const reserveBadge = a.status === 'Reserve' ? '<span style="color:#88aaff;font-size:10px;margin-left:4px">[R]</span>' : '';
-    const spIdBadge    = a.spId ? `<span class="aid-badge">${formatSpId(a.sp, a.spId)}</span>` : '';
+    const spIdBadge    = (a.spId ? `<span class="aid-badge">${formatSpId(a.sp, a.spId)}</span>` : '') + (idSeen.get(`${a.sp}#${a.spId}`) > 1 ? '<span class="aid-badge herd-flag" title="Another animal has this ID. Edit one of them and give it a custom name with a free ID.">duplicate ID</span>' : '');
 
     // Phenotype display with rarity color
     const phColor = phenoColor(a.sp, a.ph);
@@ -4152,7 +4168,7 @@ function renderHerd() {
       <td class="name-cell">${spIdBadge}<button class="btn-fav${a.favorite ? ' active' : ''}" onclick="toggleFavorite(${a.id})" title="${a.favorite ? 'Unfavorite' : 'Favorite — protects from cull suggestions'}">★</button><button class="btn-copy" style="padding:2px 6px;font-size:11px;margin-right:4px" onclick="quickCopy('${$esc(a.nickname || a.name)}')">copy</button>${a.nickname ? `<span class="nickname-display view-name-link" onclick="viewAnimal(${a.id})" title="Click to view animal details">${$h(a.nickname)}</span><span class="orig-name-dim">${$h(a.name)}</span>` : `<span class="view-name-link" onclick="viewAnimal(${a.id})" title="Click to view animal details">${$h(a.name)}</span>`}${tempBadge}${reserveBadge}</td>
       <td data-tip="${$h(a.sp)}">${dot}${spCfg.short || a.sp}</td>
       <td style="text-align:center;color:${sexColor};font-weight:bold">${a.sex === 'M' ? '♂' : a.sex === 'F' ? '♀' : a.sex || '?'}</td>
-      <td class="${blCls}" ${BLOODLINE_INFO[a.bl] ? `data-tip="${BLOODLINE_INFO[a.bl].replace(/"/g,'&quot;')}"` : ''}>${$h(a.bl)}</td>
+      <td class="${blCls}" ${Object.hasOwn(BLOODLINE_INFO, a.bl) ? `data-tip="${BLOODLINE_INFO[a.bl].replace(/"/g,'&quot;')}"` : ''}>${$h(a.bl)}</td>
       <td style="color:${phColor};font-size:11px">${phDisp}</td>
       <td style="text-align:center;color:#aaa">${a.gen || 1}</td>
       <td style="font-size:11px;color:#aaa">${parents}</td>
@@ -4258,7 +4274,7 @@ function setAdviceStatus(id, status) {
   addLog(`${$h(a.name)} → ${STATUS_ICON[status]} ${label} (from advice panel)`, 'status');
   // Re-run advice panel so the buttons disappear now the action is taken
   const panel = $id('advice-panel');
-  if (panel && panel.classList.contains('show')) buildBreedingAdvice();
+  if (panel && panel.classList.contains('show')) renderAdvice();
 }
 
 /**
@@ -5375,7 +5391,7 @@ function exportCSV() {
 /** Quote one CSV field (RFC 4180). A leading = + - @ gets a ' so spreadsheets don't run it as a formula. */
 function csvField(v) {
   let t = String(v ?? '');
-  if (/^[=+\-@]/.test(t)) t = "'" + t;
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
   return '"' + t.replace(/"/g, '""') + '"';
 }
 
@@ -5437,12 +5453,14 @@ function importCSV(e) {
       const get = (k, max = 200) => {
         const i = header.indexOf(k);
         const v = i >= 0 ? (cols[i] || '').trim() : '';
-        return _sanitizeStr(/^'[=+\-@]/.test(v) ? v.slice(1) : v, max);
+        return _sanitizeStr(/^'[=+\-@\t\r]/.test(v) ? v.slice(1) : v, max);
       };
       const stats = {};
       STATS.forEach(s => { stats[s] = Math.max(0, Math.min(10, parseInt(get(s)) || 0)); });
       const sp = get('species');
-      if (!isSpecies(sp) || !get('bloodline')) { invalid++; return; }
+      const bl = _validBloodline(get('bloodline'));
+      if (!isSpecies(sp) || !bl) { invalid++; return; }
+      const ph = _validPhenotype(sp, get('phenotype'));
       let name = get('name');
       // Names double as parent links, so an animal with this exact name (in the herd or earlier in this file) is the same animal
       if (name && preNames.has(`${sp}|${name}`)) { dupes++; return; }
@@ -5464,14 +5482,14 @@ function importCSV(e) {
       const sex    = get('sex').toUpperCase();
       const sexOk  = (sex === 'M' || sex === 'F') ? sex : '';
       const status = STATUS_LIST.includes(get('status')) ? get('status') : '?';
-      if (!name) name = computeName(sp, sexOk, get('bloodline'), get('phenotype'), stats, spId);
+      if (!name) name = computeName(sp, sexOk, bl, ph, stats, spId);
       seen.set(`${sp}#${spId}`, name);
       preNames.add(`${sp}|${name}`);
       const level = parseInt(get('level'));
       animals.push({
         id: Date.now() + Math.random(),
         spId, sp, sex: sexOk,
-        bl: get('bloodline'), ph: get('phenotype'),
+        bl, ph,
         gen: parseInt(get('gen')) || 1, p1: get('parent1'), p2: get('parent2'),
         stats, total: getTotal(stats, sp),
         name, nickname: get('nickname'),

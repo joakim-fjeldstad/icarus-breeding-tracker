@@ -535,7 +535,7 @@ check('mount import resolves parents in the file, in the herd, and ignores anoth
 check('mount import settles generations whatever the file order', applied.granGen === 1 && applied.mumGen === 2 && applied.rexGen === 3, `${applied.granGen}, ${applied.mumGen}, ${applied.rexGen}`);
 check('mount import applies ticked changes, refreshes the generated name and status choices', applied.a1Vig === (seedInfo.aStats[0] + 1) % 11 && applied.a1Bl === 'Unstable' && applied.a1Level === 12 && applied.a1Name === applied.a1Expected && applied.a1Name !== applied.a1Old && applied.shadowPh === 'Black' && applied.deadNow === 'Dead' && plan.nif.length > 0, JSON.stringify(applied));
 check('mount import records sightings for new animals', applied.sightings === true);
-const again = await ev(`(() => { const p = planMountImport(${JSON.stringify(mountsText)}); return { added: p.added.length, changed: p.changed.length, unchanged: p.unchanged.length }; })()`);
+const again = await ev(`(() => { const p = planMountImport(${JSON.stringify(mountsText)}); return { added: p.added.length, changed: p.changed.length, unchanged: p.unchanged.length, names: p.added.map(r => r.c.gameName) }; })()`);
 check('importing the same game file again adds nothing', again.added === 0 && again.changed === 0 && again.unchanged === 11, JSON.stringify(again));
 const leak = await ev(`JSON.stringify(getAllData()).includes('SECRET')`);
 check('owner name and player ID never reach the herd data', leak === false);
@@ -569,6 +569,40 @@ const viaUi = await ev(`(() => { const p = planMountImport(${JSON.stringify(moun
   return { has, sels: sels.length === nif, nif, grew: animals.length - before, rex: !!animals.find(a => a.nickname === 'Rex'), gone, dead, toast: document.getElementById('toast').textContent }; })()`);
 check('mount preview renders counts and choices, and Confirm applies what is ticked', viaUi.has && viaUi.sels && viaUi.nif > 0 && viaUi.grew === 7 && !viaUi.rex && viaUi.gone && viaUi.dead === 'Dead' && /Imported 7 animals/.test(viaUi.toast), JSON.stringify(viaUi));
 await ev(`applyData(JSON.parse(window.__snap)); migrateMemory(); saveAndRefreshFull(); true`);
+
+// ── #8: Optimize modal and advice panel ─────────────────────────────────────────────
+const errsBeforeOpt = errors.length;
+const optModal = await ev(`(() => { try { showOptimizeModal('Moa'); const open = !!document.querySelector('.opt-modal'); closeOptimizeModal(); return { open, error: '' }; } catch (e) { return { open: false, error: e.message }; } })()`);
+check('Optimize modal opens without an exception', optModal.open && !optModal.error && errors.length === errsBeforeOpt, optModal.error || errors.slice(errsBeforeOpt).join(' | '));
+const advice = await ev(`(() => { try {
+  const a = animals.find(x => x.sp === 'Moa' && x.status === '?'); showTab('entry'); document.getElementById('f-species').value = 'Moa'; onSpeciesChange(); document.getElementById('f-sex').value = 'M'; document.getElementById('f-bloodline').value = 'Wild'; STATS.forEach(s => { document.getElementById('stat-' + s).value = 5; });
+  const panel = document.getElementById('advice-panel'); renderAdvice();
+  const before = panel.querySelectorAll('button').length; setAdviceStatus(a.id, 'Reserve'); const after = panel.querySelectorAll('button').length; const still = panel.classList.contains('show');
+  panel.classList.remove('show'); a.status = '?'; save(); resetFormUI();
+  return { status: a.status, before, after, still, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('advice panel refreshes after a status change', !advice.error && advice.still && advice.after <= advice.before, JSON.stringify(advice));
+
+// ── #9: hardening of shared herd files ──────────────────────────────────────────────
+await ev(`window.__snap9 = JSON.stringify(getAllData()); true`);
+const crafted = await ev(`(() => { try {
+  const d = JSON.parse(window.__snap9);
+  d.herd.push({ id: 999101, spId: 901, sp: 'Moa', sex: 'F', bl: '__proto__', ph: '__proto__', gen: 1, p1: '', p2: '', stats: { VIG: 1 }, name: 'Proto Moa', status: '?', notes: '' });
+  d.herd.push({ id: 999104, spId: 904, sp: 'Moa', sex: 'F', bl: 'Bold', ph: SPECIES_DATA.Moa.phenotypes[7].label, gen: 1, p1: '', p2: '', stats: {}, name: 'Good Moa', status: '?', notes: '' });
+  d.herd.push({ id: 999102, spId: 902, sp: 'Not A Species', sex: 'M', bl: 'Wild', ph: 'x', gen: 1, p1: '', p2: '', stats: {}, name: 'Alien', status: '?', notes: '' });
+  d.herd.push({ id: 999103, spId: d.herd[0].spId, sp: d.herd[0].sp, sex: 'M', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'Dup Id', status: '?', notes: '\\u0001ctrl' });
+  d.goals = { Moa: 5, Slinker: [1], Buffalo: { goals: 'no', pairs: {}, phenoWeights: [], blPriority: 3 } };
+  applyData(d); migrateMemory(); showTab('goals'); renderGoals();
+  const cards = document.querySelectorAll('#goals-grid .goals-card:not(.goals-card-error)').length + document.querySelectorAll('#goals-chips-row .species-chip').length;
+  showTab('herd'); setFilter('status', 'all', null); renderHerd();
+  const flags = [...document.querySelectorAll('#herd-tbody .herd-flag')].map(f => f.textContent);
+  return { cards, proto: ({}).tamed === undefined && ({}).bred === undefined, moaObj: typeof goalsMap.Moa === 'object' && Array.isArray(goalsMap.Buffalo.goals) && Array.isArray(goalsMap.Buffalo.pairs) && !Array.isArray(goalsMap.Buffalo.phenoWeights) && typeof goalsMap.Buffalo.blPriority === 'object',
+    unknown: flags.filter(f => f === 'unknown species').length, dup: flags.filter(f => f === 'duplicate ID').length, notes: animals.find(a => a.name === 'Dup Id').notes,
+    cleared: animals.find(a => a.name === 'Proto Moa').bl === '' && animals.find(a => a.name === 'Proto Moa').ph === '', kept: animals.find(a => a.name === 'Good Moa').bl === 'Bold' && animals.find(a => a.name === 'Good Moa').ph === SPECIES_DATA.Moa.phenotypes[7].label, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a crafted herd file loads with defaults and flags instead of breaking', !crafted.error && crafted.cards >= 26 && crafted.proto && crafted.moaObj && crafted.cleared && crafted.kept, JSON.stringify(crafted));
+check('unknown species and duplicate IDs are flagged in My Herd', crafted.unknown === 1 && crafted.dup === 2 && crafted.notes === 'ctrl', JSON.stringify(crafted));
+const csvGuard = await ev(`JSON.stringify([csvField('\\t=1+1'), csvField('\\r=1'), csvField('=1'), csvField('plain')])`);
+check('CSV export guards a leading tab or CR like a formula', csvGuard === JSON.stringify(['"\'\t=1+1"', '"\'\r=1"', '"\'=1"', '"plain"']), csvGuard);
+await ev(`applyData(JSON.parse(window.__snap9)); migrateMemory(); saveAndRefreshFull(); true`);
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));
