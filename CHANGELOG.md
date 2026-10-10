@@ -10,7 +10,7 @@ All notable changes to this project are documented here.
 Fixes #1 and #2.
 
 ### Fixes
-- **Goals tab no longer goes blank** — giving a bloodline or phenotype a negative star made the Breeding Suggestions panel throw an error, which stopped the Goals tab from drawing that species and every species after it. Saved goals were never lost, only hidden
+- **Goals tab no longer goes blank** — in some herds, giving a bloodline or phenotype a negative star made the Breeding Suggestions panel throw an error, which stopped the Goals tab from drawing that species and every species after it. Saved goals were never lost, only hidden
 - **One broken card can't hide the rest** — if a species card fails to render, it is replaced by a short error card and the other species still show
 
 ---

@@ -3034,8 +3034,13 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
     goalsChips.appendChild(chip);
   } else {
     grid.appendChild(card);
-    _initPairCardDnD(card);
-    _drawGoalSightingRadars(sp);
+    // The card is already on the page, so a failure in these extras must not add an error card next to it
+    try {
+      _initPairCardDnD(card);
+      _drawGoalSightingRadars(sp);
+    } catch (err) {
+      console.error(`Goals tab: could not finish ${sp}`, err);
+    }
   }
 }
 
