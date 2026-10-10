@@ -140,7 +140,7 @@ Each tile shows the animal's **short species ID** (e.g. `DR02`), a **colored blo
 - **Remove** — click the ✕ button on an assigned tile to return the animal to the pool
 - **View** — click any tile (pool or slot) to open the animal viewer
 
-When placed in a slot, the animal's status is automatically set to **Breed**. When removed or replaced, their status reverts to **Undecided** — unless you had set it to something else deliberately (Reserve, Station, etc.), in which case it is left as-is. Dune Raptors and Swamp Raptors can be cross-bred; their animals appear in each other's pair slots. Cross-breed offspring are either a DR or SR — determined by which species tab the pair is in.
+When placed in a slot, the animal's status is automatically set to **Breed**. When removed or replaced, their status reverts to **Undecided** — unless you had set it to something else deliberately (Reserve, Station, etc.), in which case it is left as-is.
 
 Each pair slot shows a goal badge:
 - **✓ Goal N** — this animal matches one of your species goals
@@ -277,7 +277,7 @@ If you prefer to keep a local copy (useful for offline play or if you want a spe
 1. Go to the [repository on GitHub](https://github.com/joakim-fjeldstad/icarus-breeding-tracker)
 2. Click `index.html` in the file list
 3. Click the **download icon (⬇)** in the top right of the file view
-4. Save it to a permanent local folder, e.g. `E:\Icarus\BreedingTracker\index.html`
+4. Save it to a permanent local folder, for example a folder in your Documents
 5. Open it in Chrome or Edge
 
 > Avoid saving to a cloud-synced folder like OneDrive or Google Drive — file syncing can occasionally conflict with auto-save. A local drive is ideal.
@@ -301,8 +301,24 @@ Direct links:
 - ✨ [Feature Request](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=enhancement)
 - 📋 [View All Issues](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues)
 
+Found a security problem? Please don't post it in a public issue. Use **Report a vulnerability** on the repository's [Security tab](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/security).
+
 ---
 
 ## 🤝 Sharing the App
 
 Share the `index.html` file directly — it is completely self-contained. Recipients follow the same first launch steps to set up their own data file. Or just send them the web version link.
+
+---
+
+## 🛠 Contributing
+
+Pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how the app is built, how to run the smoke test, and what a pull request needs.
+
+---
+
+## 📄 License
+
+[GPL-3.0](LICENSE).
+
+Icarus is a game by RocketWerkz. This tracker is a fan project and is not affiliated with RocketWerkz.
