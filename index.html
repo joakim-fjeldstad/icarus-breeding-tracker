@@ -3403,7 +3403,8 @@ function renderProbPanel() {
   const p1val = $val('f-p1');
   const p2val = $val('f-p2');
   const sp    = $val('f-species');
-  if (SPECIES_DATA[sp]?.breedable === false) { panel.classList.remove('show'); return; }
+  // No odds for an unknown species (for example from a loaded file) or one that cannot be bred
+  if (!SPECIES_DATA[sp] || SPECIES_DATA[sp].breedable === false) { panel.classList.remove('show'); return; }
   const p1 = findParentAnimal(p1val, sp).animal;
   const p2 = findParentAnimal(p2val, sp).animal;
   const hasAny = p1 || p2 || p1val === 'Unknown' || p2val === 'Unknown';

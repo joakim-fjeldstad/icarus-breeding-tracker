@@ -34,6 +34,7 @@ Implements #13, based on the species research in #7 (wiki, patch notes, the game
 - **Dropping a link or text on a species card no longer moves a species** — only species cards reorder the list
 - **No breeding odds for species that cannot be bred** — switching a new entry to such a species clears the parent fields. Animals that already have parents keep them, and the fields stay visible when you edit the animal. Odds are also refreshed whenever you change species
 - **Updating an animal no longer opens the pair placement panel** — it only opens for newly added animals
+- **Editing an animal with an unknown species no longer stops halfway** — for example an animal from a file made with another version
 - **No "Breed with undefined"** — the serum line in the New Animal form only shows for species that have a serum
 
 ### README
