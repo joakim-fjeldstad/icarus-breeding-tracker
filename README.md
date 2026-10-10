@@ -100,6 +100,7 @@ Shows all your animals in a sortable, filterable table. Key features:
 - **🪦 Show Dead** / **🛸 Show Station** toggles to include or exclude those animals from the view
 - **🛸 Station** and **🪦 Dead** status pills show those animals even when the matching toggle is off
 - **⚡ Optimize Pairs** button in the section header — opens the pair optimizer for all species (see Breeding Pairs)
+- **Badges** warn about data that needs attention: **unknown species** on an animal from a file made with another version, and **duplicate ID** when two animals share an ID. Edit the animal to fix it
 
 </details>
 

@@ -11,15 +11,17 @@ Implements #8 and #9.
 
 ### Fixes
 - **Opening the Optimize modal no longer throws** — a leftover call to the viewer's radar referenced names that do not exist there (#8)
-- **The advice panel refreshes after Reserve, Cull or Undecided** — the buttons for that animal disappear at once instead of staying until the panel is reopened (#8)
+- **The advice panel refreshes after Reserve, Cull or Undecided** — the animal leaves its pair slot and its buttons disappear at once, instead of staying until the panel is reopened (#8)
 
 ### Shared files (#9)
-- **Malformed goals in a herd file no longer blank the Goals tab** — a species entry that is not an object, or a `goals`, `pairs`, `phenoWeights` or `blPriority` field of the wrong type, is replaced with defaults on load
+- **Malformed goals in a herd file no longer blank the Goals tab** — a species entry that is not an object, or a `goals`, `pairs`, `phenoWeights` or `blPriority` field of the wrong type, is replaced with defaults on load, also for files from before v0.23
+- **Browser storage goes through the same checks as a file**
 - **Phenotype and bloodline counts use null-prototype maps**, so a file with `__proto__` as a value cannot touch `Object.prototype`
 - **Star scores in breeding suggestions are escaped**
-- **Control characters are dropped from loaded text**, and the CSV export guards a leading tab or carriage return as well as `=`, `+`, `-` and `@`
-- **Animals with an unknown species are kept and flagged** in My Herd, so a file from another version does not lose animals
-- **Duplicate IDs are flagged** in My Herd. Older files can hold two animals with the same ID (the Swamp Raptor rename merged two counters); the badge says which ones to renumber
+- **Control characters are dropped from loaded text** (tab and newline stay), and the CSV export guards a leading tab or carriage return as well as `=`, `+`, `-` and `@`
+- **Only known bloodlines and phenotypes are kept** — a bloodline is matched regardless of case, an unknown phenotype label is cleared, and `Swamp Pn` labels from v0.26 to v0.27b are renamed to `Geothermal Pn` (data version 7)
+- **Animals with an unknown species are kept and flagged** in My Herd, so a file from another version does not lose animals. Their species and phenotype text is escaped wherever it is shown; before this version a crafted file could run script through the species cell
+- **Duplicate IDs are flagged** in My Herd. Older files can hold two animals with the same ID (the Swamp Raptor rename merged two counters); the badge marks every animal that shares an ID, including dead or stationed ones that are hidden by default
 
 ---
 

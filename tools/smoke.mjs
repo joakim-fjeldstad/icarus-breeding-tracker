@@ -575,31 +575,52 @@ const errsBeforeOpt = errors.length;
 const optModal = await ev(`(() => { try { showOptimizeModal('Moa'); const open = !!document.querySelector('.opt-modal'); closeOptimizeModal(); return { open, error: '' }; } catch (e) { return { open: false, error: e.message }; } })()`);
 check('Optimize modal opens without an exception', optModal.open && !optModal.error && errors.length === errsBeforeOpt, optModal.error || errors.slice(errsBeforeOpt).join(' | '));
 const advice = await ev(`(() => { try {
-  const a = animals.find(x => x.sp === 'Moa' && x.status === '?'); showTab('entry'); document.getElementById('f-species').value = 'Moa'; onSpeciesChange(); document.getElementById('f-sex').value = 'M'; document.getElementById('f-bloodline').value = 'Wild'; STATS.forEach(s => { document.getElementById('stat-' + s).value = 5; });
+  const a = animals.find(x => x.sp === 'Moa' && x.status === '?'); const slot = pairsMap.Moa[0]; const saved = { m: slot.m, f: slot.f };
+  if (a.sex === 'M') slot.m = a.name; else slot.f = a.name;
+  showTab('entry'); document.getElementById('f-species').value = 'Moa'; onSpeciesChange(); document.getElementById('f-sex').value = a.sex; document.getElementById('f-bloodline').value = 'Alpha'; STATS.forEach(s => { document.getElementById('stat-' + s).value = 9; });
   const panel = document.getElementById('advice-panel'); renderAdvice();
-  const before = panel.querySelectorAll('button').length; setAdviceStatus(a.id, 'Reserve'); const after = panel.querySelectorAll('button').length; const still = panel.classList.contains('show');
-  panel.classList.remove('show'); a.status = '?'; save(); resetFormUI();
-  return { status: a.status, before, after, still, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('advice panel refreshes after a status change', !advice.error && advice.still && advice.after <= advice.before, JSON.stringify(advice));
+  const count = () => [...panel.querySelectorAll('button')].filter(b => (b.getAttribute('onclick') || '').includes('setAdviceStatus(' + a.id + ',')).length;
+  const before = count(); setAdviceStatus(a.id, 'Reserve'); const after = count(); const still = panel.classList.contains('show'); const freed = !pairsMap.Moa.some(p => p.m === a.name || p.f === a.name);
+  panel.classList.remove('show'); a.status = '?'; Object.assign(slot, saved); save(); resetFormUI();
+  return { before, after, still, freed, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('advice panel frees the pair slot and drops the buttons after a status change', !advice.error && advice.before > 0 && advice.after === 0 && advice.still && advice.freed, JSON.stringify(advice));
 
 // ── #9: hardening of shared herd files ──────────────────────────────────────────────
 await ev(`window.__snap9 = JSON.stringify(getAllData()); true`);
+const PWN6 = '<img src=x id=pwn6 onerror="window.__pwned6=1">';
 const crafted = await ev(`(() => { try {
-  const d = JSON.parse(window.__snap9);
+  const d = JSON.parse(window.__snap9); const alive = d.herd.find(a => a.status === 'Keep');
   d.herd.push({ id: 999101, spId: 901, sp: 'Moa', sex: 'F', bl: '__proto__', ph: '__proto__', gen: 1, p1: '', p2: '', stats: { VIG: 1 }, name: 'Proto Moa', status: '?', notes: '' });
-  d.herd.push({ id: 999104, spId: 904, sp: 'Moa', sex: 'F', bl: 'Bold', ph: SPECIES_DATA.Moa.phenotypes[7].label, gen: 1, p1: '', p2: '', stats: {}, name: 'Good Moa', status: '?', notes: '' });
-  d.herd.push({ id: 999102, spId: 902, sp: 'Not A Species', sex: 'M', bl: 'Wild', ph: 'x', gen: 1, p1: '', p2: '', stats: {}, name: 'Alien', status: '?', notes: '' });
-  d.herd.push({ id: 999103, spId: d.herd[0].spId, sp: d.herd[0].sp, sex: 'M', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'Dup Id', status: '?', notes: '\\u0001ctrl' });
-  d.goals = { Moa: 5, Slinker: [1], Buffalo: { goals: 'no', pairs: {}, phenoWeights: [], blPriority: 3 } };
-  applyData(d); migrateMemory(); showTab('goals'); renderGoals();
+  d.herd.push({ id: 999104, spId: 904, sp: 'Moa', sex: 'F', bl: 'bold', ph: SPECIES_DATA.Moa.phenotypes[7].label, gen: 1, p1: '', p2: '', stats: {}, name: 'Good Moa', status: '?', notes: '' });
+  d.herd.push({ id: 999102, spId: 902, sp: ${JSON.stringify(PWN6)}, sex: 'M', bl: 'Wild', ph: ${JSON.stringify(PWN6)}, gen: 1, p1: '', p2: '', stats: {}, name: 'Alien', status: '?', notes: '' });
+  d.herd.push({ id: 999103, spId: alive.spId, sp: alive.sp, sex: 'M', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'Dup Id', status: '?', notes: '\u0001ctrl\tkeep' });
+  d.herd.push({ id: 999105, spId: 0, sp: 'Pig', sex: 'M', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'No Id 1', status: '?', notes: '' });
+  d.herd.push({ id: 999106, spId: 0, sp: 'Pig', sex: 'F', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'No Id 2', status: '?', notes: '' });
+  d.goals = { Moa: 5, Slinker: [1], Buffalo: { goals: 'no', pairs: {}, phenoWeights: [], blPriority: 3 }, 'Not A Species': { goals: [] } };
+  applyData(d); migrateMemory();
+  animals.find(a => a.name === 'Good Moa').ph = '__proto__';          // bypass validation: the count maps themselves must be safe
+  showTab('goals'); renderGoals();
   const cards = document.querySelectorAll('#goals-grid .goals-card:not(.goals-card-error)').length + document.querySelectorAll('#goals-chips-row .species-chip').length;
+  animals.find(a => a.name === 'Good Moa').ph = SPECIES_DATA.Moa.phenotypes[7].label;
   showTab('herd'); setFilter('status', 'all', null); renderHerd();
   const flags = [...document.querySelectorAll('#herd-tbody .herd-flag')].map(f => f.textContent);
-  return { cards, proto: ({}).tamed === undefined && ({}).bred === undefined, moaObj: typeof goalsMap.Moa === 'object' && Array.isArray(goalsMap.Buffalo.goals) && Array.isArray(goalsMap.Buffalo.pairs) && !Array.isArray(goalsMap.Buffalo.phenoWeights) && typeof goalsMap.Buffalo.blPriority === 'object',
-    unknown: flags.filter(f => f === 'unknown species').length, dup: flags.filter(f => f === 'duplicate ID').length, notes: animals.find(a => a.name === 'Dup Id').notes,
-    cleared: animals.find(a => a.name === 'Proto Moa').bl === '' && animals.find(a => a.name === 'Proto Moa').ph === '', kept: animals.find(a => a.name === 'Good Moa').bl === 'Bold' && animals.find(a => a.name === 'Good Moa').ph === SPECIES_DATA.Moa.phenotypes[7].label, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('a crafted herd file loads with defaults and flags instead of breaking', !crafted.error && crafted.cards >= 26 && crafted.proto && crafted.moaObj && crafted.cleared && crafted.kept, JSON.stringify(crafted));
-check('unknown species and duplicate IDs are flagged in My Herd', crafted.unknown === 1 && crafted.dup === 2 && crafted.notes === 'ctrl', JSON.stringify(crafted));
+  const alien = animals.find(a => a.name === 'Alien'); viewAnimal(alien.id); closeViewPanel();
+  const noIds = animals.filter(a => /^No Id/.test(a.name));
+  return { cards, species: Object.keys(SPECIES_DATA).length, proto: ({}).tamed === undefined && ({}).bred === undefined, moaObj: typeof goalsMap.Moa === 'object' && Array.isArray(goalsMap.Buffalo.goals) && Array.isArray(goalsMap.Buffalo.pairs) && !Array.isArray(goalsMap.Buffalo.phenoWeights) && typeof goalsMap.Buffalo.blPriority === 'object',
+    unknownKeyDropped: !('Not A Species' in goalsMap), unknown: flags.filter(f => f === 'unknown species').length, dup: flags.filter(f => f === 'duplicate ID').length, notes: animals.find(a => a.name === 'Dup Id').notes,
+    cleared: animals.find(a => a.name === 'Proto Moa').bl === '' && animals.find(a => a.name === 'Proto Moa').ph === '', kept: animals.find(a => a.name === 'Good Moa').bl === 'Bold' && animals.find(a => a.name === 'Good Moa').ph === SPECIES_DATA.Moa.phenotypes[7].label,
+    noIdsAssigned: noIds.every(a => a.spId > 0) && noIds[0].spId !== noIds[1].spId, pwned: !!(window.__pwned6 || document.getElementById('pwn6')), rawInHerd: !!document.querySelector('#herd-tbody img, #herd-tbody script'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a crafted herd file loads with defaults and flags instead of breaking', !crafted.error && crafted.cards === crafted.species && crafted.proto && crafted.moaObj && crafted.unknownKeyDropped && crafted.cleared && crafted.kept, JSON.stringify(crafted));
+check('an unknown-species animal cannot run script through My Herd or the viewer', !crafted.error && !crafted.pwned && !crafted.rawInHerd, JSON.stringify(crafted));
+check('unknown species and duplicate IDs are flagged in My Herd, missing IDs are assigned', crafted.unknown === 1 && crafted.dup === 2 && crafted.notes === 'ctrl\tkeep' && crafted.noIdsAssigned, JSON.stringify(crafted));
+const legacy = await ev(`(() => { try {
+  applyData({ version: 6, herd: [{ id: 1, spId: 1, sp: 'Geothermal Raptor', sex: 'F', bl: 'wild', ph: 'Swamp P2', gen: 1, p1: '', p2: '', stats: {}, name: 'Old Geo', status: '?', notes: '' }],
+    goals: { 'Geothermal Raptor': { goals: [{ bl: 'Alpha', ph: 'Swamp P3' }], phenoWeights: { 'Swamp P2': 2 } } } }); migrateMemory();
+  const a = animals[0], g = goalsMap['Geothermal Raptor'];
+  const r1 = { ph: a.ph, bl: a.bl, goalPh: g.goals[0].ph, weightKey: Object.keys(g.phenoWeights).join() };
+  applyData({ version: 4, herd: [], goals: { Moa: { goals: 'no', pairs: [{ bl: 'Wild' }, 7] } } }); migrateMemory();
+  return { ...r1, v4goals: JSON.stringify(goalsMap.Moa.goals), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('legacy phenotype labels and bloodline case are migrated, a v4 file with bad goals loads', !legacy.error && legacy.ph === 'Geothermal P2' && legacy.bl === 'Wild' && legacy.goalPh === 'Geothermal P3' && legacy.weightKey === 'Geothermal P2' && legacy.v4goals === '[{"bl":"Wild","ph":""}]', JSON.stringify(legacy));
 const csvGuard = await ev(`JSON.stringify([csvField('\\t=1+1'), csvField('\\r=1'), csvField('=1'), csvField('plain')])`);
 check('CSV export guards a leading tab or CR like a formula', csvGuard === JSON.stringify(['"\'\t=1+1"', '"\'\r=1"', '"\'=1"', '"plain"']), csvGuard);
 await ev(`applyData(JSON.parse(window.__snap9)); migrateMemory(); saveAndRefreshFull(); true`);

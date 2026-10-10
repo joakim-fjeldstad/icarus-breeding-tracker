@@ -1532,7 +1532,7 @@ let _saveTimer  = null;
 /** Single source of truth for the displayed app version — update this on every release. */
 const APP_VERSION  = 'v0.31b – Fixes for the optimiser, advice panel and shared files';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
-const DATA_VERSION = 6;
+const DATA_VERSION = 7;
 
 // The version of the data that was last loaded from disk/storage.
 // Set by applyData() and loadFromLocalStorage(); used by migrateMemory().
@@ -1560,13 +1560,14 @@ function getAllData() {
 /** Sanitise a plain-text string from user data — strip to string, cap length */
 function _sanitizeStr(v, maxLen = 200) {
   if (v === null || v === undefined) return '';
-  // Control characters are dropped (newlines stay, for notes): some spreadsheets read a leading tab or CR as a formula start
-  return String(v).replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '').slice(0, maxLen);
+  // Control characters are dropped (tab and newline stay, for notes); the CSV export guards a leading tab or CR itself
+  return String(v).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').slice(0, maxLen);
 }
 
 /** A bloodline from a file is kept only if the game has it; anything else becomes empty (the name still shows the text) */
-function _validBloodline(v) { const s = _sanitizeStr(v, 20); return BLOODLINES.includes(s) ? s : ''; }
-/** A phenotype is kept only if it is one of the species' labels; an unknown species keeps the text as plain text */
+function _validBloodline(v) { const s = _sanitizeStr(v, 20).toLowerCase(); return BLOODLINES.find(b => b.toLowerCase() === s) || ''; }
+/** A phenotype is kept only if it is one of the species' labels; an unknown species keeps the text (escaped wherever it is shown).
+ * Runs in migrateMemory(), after the rename steps, so a label from an older version is renamed before it is checked */
 function _validPhenotype(sp, v) {
   const s = _sanitizeStr(v);
   const cfg = Object.hasOwn(SPECIES_DATA, sp) ? SPECIES_DATA[sp] : null;
@@ -1586,7 +1587,7 @@ function applyData(d) {
     sp:       _sanitizeStr(a.sp),
     sex:      _sanitizeStr(a.sex, 1),
     bl:       _validBloodline(a.bl),
-    ph:       _validPhenotype(a.sp, a.ph),
+    ph:       _sanitizeStr(a.ph),
     gen:      typeof a.gen === 'number' ? a.gen : 1,
     p1:       _sanitizeStr(a.p1),
     p2:       _sanitizeStr(a.p2),
@@ -1699,14 +1700,15 @@ function migrateMemory() {
   if (loadedDataVersion < 5) {
     for (const [sp, g] of Object.entries(goalsMap || {})) {
       if (!g || typeof g !== 'object' || Array.isArray(g)) continue;   // initGoals() replaces it with defaults
-      if (!g.goals) g.goals = [];
+      if (!Array.isArray(g.goals)) g.goals = [];
       // Move any non-empty per-pair bl/ph entries into species goals
       if (Array.isArray(g.pairs)) {
         g.pairs.forEach(p => {
-          if (p && (p.bl || p.ph)) {
+          const bl = typeof p?.bl === 'string' ? p.bl : '', ph = typeof p?.ph === 'string' ? p.ph : '';
+          if (bl || ph) {
             // Avoid duplicates
-            const exists = g.goals.some(gl => gl.bl === p.bl && gl.ph === p.ph);
-            if (!exists) g.goals.push({ bl: p.bl || '', ph: p.ph || '' });
+            const exists = g.goals.some(gl => gl && gl.bl === bl && gl.ph === ph);
+            if (!exists) g.goals.push({ bl, ph });
           }
         });
         // Clear old per-pair goal data (keep array length for slot tracking)
@@ -1732,13 +1734,30 @@ function migrateMemory() {
     if (goalsMap[OLD]) { goalsMap[NEW] = goalsMap[OLD]; delete goalsMap[OLD]; dirty = true; }
   }
 
+  // ── v6 → v7: 'Swamp Pn' labels on Geothermal Raptor (v0.26 to v0.27b) become 'Geothermal Pn' ──
+  if (loadedDataVersion < 7) {
+    const GEO = 'Geothermal Raptor', fix = l => (typeof l === 'string' ? l.replace(/^Swamp P(\d)$/, 'Geothermal P$1') : l);
+    animals.forEach(a => { if (a.sp === GEO) { const l = fix(a.ph); if (l !== a.ph) { a.ph = l; dirty = true; } } });
+    const g = goalsMap[GEO];
+    if (g && typeof g === 'object' && !Array.isArray(g)) {
+      if (Array.isArray(g.goals)) g.goals.forEach(gl => { if (gl && typeof gl === 'object') { const l = fix(gl.ph); if (l !== gl.ph) { gl.ph = l; dirty = true; } } });
+      if (g.phenoWeights && typeof g.phenoWeights === 'object') for (const k of Object.keys(g.phenoWeights)) { const l = fix(k); if (l !== k) { g.phenoWeights[l] = g.phenoWeights[k]; delete g.phenoWeights[k]; dirty = true; } }
+    }
+  }
+
   // ── Always-run baseline: fill required fields on all animals ──────
   animals.forEach(a => {
     if (!a.stats)           a.stats  = {};
     if (a.id === undefined) { a.id   = Date.now() + Math.random(); dirty = true; }
-    if (a.spId === undefined) { a.spId = getNextSpId(a.sp);        dirty = true; }
+    if (!a.spId)            { a.spId = getNextSpId(a.sp);        dirty = true; }
     if (!a.status)          a.status = '?';
+    const ph = _validPhenotype(a.sp, a.ph);
+    if (ph !== a.ph)        { a.ph = ph;                           dirty = true; }
   });
+  // Per-species maps only carry species this version knows; anything else is from another version and cannot render
+  for (const m of [pairsMap, goalsMap, pairCounts, phenoStats, blStats, cardWidths]) {
+    for (const k of Object.keys(m)) if (!Object.hasOwn(SPECIES_DATA, k)) { delete m[k]; dirty = true; }
+  }
 
   // If anything changed, persist immediately so the file is up to date
   if (dirty) save();
@@ -1749,14 +1768,10 @@ function migrateMemory() {
 
 /** Load from localStorage (fallback / legacy) */
 function loadFromLocalStorage() {
-  loadedDataVersion = 1; // localStorage data predates the version field
-  try { animals    = JSON.parse(localStorage.getItem(KEYS.HERD))        || []; } catch { animals    = []; }
-  try { pairsMap   = JSON.parse(localStorage.getItem(KEYS.PAIRS))       || {}; } catch { pairsMap   = {}; }
-  try { goalsMap   = JSON.parse(localStorage.getItem(KEYS.GOALS))       || {}; } catch { goalsMap   = {}; }
-  try { pairCounts = JSON.parse(localStorage.getItem(KEYS.PAIR_COUNTS)) || {}; } catch { pairCounts = {}; }
-  try { nextSpAid  = JSON.parse(localStorage.getItem(KEYS.NEXT_SP_AID)) || {}; } catch { nextSpAid  = {}; }
-  try { phenoStats = JSON.parse(localStorage.getItem(KEYS.PHENO_STATS)) || {}; } catch { phenoStats = {}; }
-  try { blStats    = JSON.parse(localStorage.getItem(KEYS.BL_STATS))    || {}; } catch { blStats    = {}; }
+  // Browser storage predates the version field; it goes through applyData like a file, so the same checks apply
+  const read = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+  applyData({ version: 1, herd: read(KEYS.HERD) || [], pairs: read(KEYS.PAIRS) || {}, goals: read(KEYS.GOALS) || {}, pairCounts: read(KEYS.PAIR_COUNTS) || {},
+    nextSpAid: read(KEYS.NEXT_SP_AID) || {}, phenoStats: read(KEYS.PHENO_STATS) || {}, blStats: read(KEYS.BL_STATS) || {} });
 }
 
 // ── INDEXEDDB: persist file handle across sessions ────────────────
@@ -2359,7 +2374,7 @@ function showOptimizeModal(sp) {
           return `<div class="opt-action-row">
             <span class="opt-action-name">${fav}${$h(displayName(s.animal))} <span style="color:#555;font-size:10px">(${tot})</span></span>
             <span class="${cls}">${actionIcons[s.action]} ${lbl}</span>
-            <span class="opt-reason">${s.reason}</span>
+            <span class="opt-reason">${$h(s.reason)}</span>
             <button class="btn-sm" style="font-size:10px;padding:1px 8px;flex-shrink:0" onclick="applyOptimizeSingleSuggestion(${pii},${si},this)">Apply</button>
           </div>`;
         }).join('')
@@ -4127,7 +4142,7 @@ function renderHerd() {
 
   // IDs used more than once (older files merged two counters): flagged so the player can renumber
   const idSeen = new Map();
-  animals.forEach(a => { const k = `${a.sp}#${a.spId}`; idSeen.set(k, (idSeen.get(k) || 0) + 1); });
+  animals.forEach(a => { if (!a.spId) return; const k = `${a.sp}#${a.spId}`; idSeen.set(k, (idSeen.get(k) || 0) + 1); });
   tbody.innerHTML = list.map(a => {
     const spCfg    = SPECIES_DATA[a.sp] || {};
     const dot      = `<span class="species-dot" style="background:${spCfg.color||'#888'}"></span>` + (SPECIES_DATA[a.sp] ? '' : '<span class="aid-badge herd-flag" title="This species is not in this version of the tracker. Edit the animal to fix it, or delete it.">unknown species</span>');
@@ -4148,11 +4163,11 @@ function renderHerd() {
     const tempBadge    = a.status === 'Temp' ? '<span style="color:var(--tmp);font-size:10px;margin-left:4px">⚡</span>' : '';
     const deadStyle    = a.status === 'Dead' ? 'opacity:.4;text-decoration:line-through;' : '';
     const reserveBadge = a.status === 'Reserve' ? '<span style="color:#88aaff;font-size:10px;margin-left:4px">[R]</span>' : '';
-    const spIdBadge    = (a.spId ? `<span class="aid-badge">${formatSpId(a.sp, a.spId)}</span>` : '') + (idSeen.get(`${a.sp}#${a.spId}`) > 1 ? '<span class="aid-badge herd-flag" title="Another animal has this ID. Edit one of them and give it a custom name with a free ID.">duplicate ID</span>' : '');
+    const spIdBadge    = (a.spId ? `<span class="aid-badge">${$h(formatSpId(a.sp, a.spId))}</span>` : '') + (idSeen.get(`${a.sp}#${a.spId}`) > 1 ? '<span class="aid-badge herd-flag" title="Another animal, possibly dead or on the station, has this ID. Edit one of them and give it a custom name with a free ID.">duplicate ID</span>' : '');
 
     // Phenotype display with rarity color
     const phColor = phenoColor(a.sp, a.ph);
-    const phDisp  = a.ph ? phenoDisplay(a.sp, a.ph) || $h(a.ph) : '—';
+    const phDisp  = a.ph ? $h(phenoDisplay(a.sp, a.ph) || a.ph) : '—';
 
     const parents = (() => {
       const parts = [a.p1, a.p2].filter(p => p && p !== 'Unknown');
@@ -4166,7 +4181,7 @@ function renderHerd() {
     const sexColor = a.sex === 'M' ? 'var(--male)' : a.sex === 'F' ? 'var(--fem)' : 'var(--dim)';
     return `<tr class="herd-row" onclick="if(!['BUTTON','SELECT','INPUT','A','SPAN'].includes(event.target.tagName)&&!event.target.closest('.btn-sm,.btn-fav,.status-inline'))viewAnimal(${a.id})" style="${deadStyle}">
       <td class="name-cell">${spIdBadge}<button class="btn-fav${a.favorite ? ' active' : ''}" onclick="toggleFavorite(${a.id})" title="${a.favorite ? 'Unfavorite' : 'Favorite — protects from cull suggestions'}">★</button><button class="btn-copy" style="padding:2px 6px;font-size:11px;margin-right:4px" onclick="quickCopy('${$esc(a.nickname || a.name)}')">copy</button>${a.nickname ? `<span class="nickname-display view-name-link" onclick="viewAnimal(${a.id})" title="Click to view animal details">${$h(a.nickname)}</span><span class="orig-name-dim">${$h(a.name)}</span>` : `<span class="view-name-link" onclick="viewAnimal(${a.id})" title="Click to view animal details">${$h(a.name)}</span>`}${tempBadge}${reserveBadge}</td>
-      <td data-tip="${$h(a.sp)}">${dot}${spCfg.short || a.sp}</td>
+      <td data-tip="${$h(a.sp)}">${dot}${$h(spCfg.short || a.sp)}</td>
       <td style="text-align:center;color:${sexColor};font-weight:bold">${a.sex === 'M' ? '♂' : a.sex === 'F' ? '♀' : a.sex || '?'}</td>
       <td class="${blCls}" ${Object.hasOwn(BLOODLINE_INFO, a.bl) ? `data-tip="${BLOODLINE_INFO[a.bl].replace(/"/g,'&quot;')}"` : ''}>${$h(a.bl)}</td>
       <td style="color:${phColor};font-size:11px">${phDisp}</td>
@@ -4263,10 +4278,21 @@ function editAnimal(id) {
  * @param {number} id - animal id
  * @param {boolean} quiet - if true, skip confirmation (used from advice panel)
  */
+/** Clear an animal from every pair slot it occupies. Returns true if it was in one */
+function unassignFromPairs(name) {
+  let found = false;
+  for (const ps of Object.values(pairsMap)) for (const p of ps || []) {
+    if (p && p.m === name) { p.m = ''; found = true; }
+    if (p && p.f === name) { p.f = ''; found = true; }
+  }
+  return found;
+}
+
 function setAdviceStatus(id, status) {
   const a = animals.find(x => x.id === id);
   if (!a) return;
   a.status = status;
+  unassignFromPairs(a.name);   // the advice was about replacing this animal in its pair
   save();
   renderHerd(); renderPairs();
   const label = STATUS_LABEL[status] || status;
@@ -4823,7 +4849,7 @@ function viewAnimal(id) {
     const sugIcons  = { cull:'🪦', store:'🛸', reserve:'🔶', keep:'✅' };
     const sugLabels = { cull:'Cull', store:'Store on Station', reserve:'Reserve', keep:'Keep' };
     const cls = `view-suggestion view-sug-${sug.action}`;
-    sugHtml = `<div class="${cls}"><span class="view-sug-icon">${sugIcons[sug.action]}</span><span class="view-sug-text"><span class="view-sug-action" style="color:${sugColors[sug.action]}">${sugLabels[sug.action]}</span><br><span style="color:var(--dim);font-size:11px">${sug.reason}</span></span></div>`;
+    sugHtml = `<div class="${cls}"><span class="view-sug-icon">${sugIcons[sug.action]}</span><span class="view-sug-text"><span class="view-sug-action" style="color:${sugColors[sug.action]}">${sugLabels[sug.action]}</span><br><span style="color:var(--dim);font-size:11px">${$h(sug.reason)}</span></span></div>`;
   } else {
     sugHtml = `<div class="view-suggestion view-sug-keep"><span class="view-sug-icon">❓</span><span class="view-sug-text"><span class="view-sug-action">No suggestion</span><br><span style="color:var(--dim);font-size:11px">Run the optimizer for a full herd analysis</span></span></div>`;
   }
