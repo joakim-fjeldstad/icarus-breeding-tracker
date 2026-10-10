@@ -5647,13 +5647,18 @@ function parseMountBlob(binaryData) {
  * Only the fields the tracker uses are copied out; the parsed tree is dropped.
  */
 function extractMount(entry) {
-  const gameName = _sanitizeStr(entry.MountName);
+  const clean = v => _sanitizeStr(v).replace(/[\x00-\x1f\x7f]/g, '');   // names from the file: no control characters (display and CSV)
+  const gameName = clean(entry.MountName);
   const skip = reason => ({ ok: false, gameName, reason });
   if (!entry.RecorderBlob || typeof entry.RecorderBlob !== 'object') return skip('no recorder data');
   let t;
   try { t = parseMountBlob(entry.RecorderBlob.BinaryData); }
-  catch (e) { return skip(e instanceof MountParseError ? 'unreadable record' : 'unreadable record'); }
-  if (t.ActorStateRecorderVersion !== MOUNT_RECORDER_VERSION) return skip(`newer save format (version ${$h(String(t.ActorStateRecorderVersion))})`);
+  catch (e) {
+    if (!(e instanceof MountParseError)) { console.error('Import from game: parser error', e); return skip('parser error'); }
+    return skip('unreadable record');
+  }
+  const ver = t.ActorStateRecorderVersion;
+  if (ver !== MOUNT_RECORDER_VERSION) return skip(`unsupported save format (version ${ver === undefined ? 'missing' : _sanitizeStr(ver, 20)}, expected ${MOUNT_RECORDER_VERSION})`);
   const sp = typeof entry.MountType === 'string' ? MOUNT_SPECIES[entry.MountType] : undefined;
   if (!sp || !Object.hasOwn(SPECIES_DATA, sp)) return skip(`unknown species (${_sanitizeStr(entry.MountType, 40) || '?'})`);
   const sex = t.Sex === 1 ? 'F' : t.Sex === 2 ? 'M' : '';
@@ -5666,15 +5671,17 @@ function extractMount(entry) {
     if (g && typeof g === 'object' && Object.hasOwn(MOUNT_GENES, g.GeneticValueName)) stats[MOUNT_GENES[g.GeneticValueName]] = Math.max(0, Math.min(10, parseInt(g.Value) || 0));
   }
   if (STATS.some(s => stats[s] === undefined)) return skip('incomplete genetics');
+  const phenotypes = SPECIES_DATA[sp].phenotypes;
   let phIndex = typeof t.Variation === 'number' ? t.Variation : -1;
   if (sp === 'Horse') {
-    const coat = (typeof t.AISetupRowName === 'string' && t.AISetupRowName.match(/_(A\d)$/) || [])[1];
-    phIndex = Object.hasOwn(MOUNT_HORSE_COAT, coat) ? MOUNT_HORSE_COAT[coat] : -1;
-  }
-  const phenotypes = SPECIES_DATA[sp].phenotypes;
+    const row = typeof t.AISetupRowName === 'string' ? t.AISetupRowName : '';
+    const coat = (row.match(/_(A\d)$/) || [])[1];
+    if (!Object.hasOwn(MOUNT_HORSE_COAT, coat)) return skip(`unknown horse coat row (${_sanitizeStr(row, 40) || '?'})`);
+    phIndex = MOUNT_HORSE_COAT[coat];
+  } else if (phenotypes.length === 1) phIndex = 0;     // one phenotype in the tracker: always the base
   if (phIndex < 0 || phIndex >= phenotypes.length) return skip(`phenotype ${phIndex} is not known for ${sp}`);
   const level = typeof entry.MountLevel === 'number' ? Math.max(0, Math.min(50, Math.floor(entry.MountLevel))) : 0;
-  const mother = _sanitizeStr(t.MotherName), father = _sanitizeStr(t.FatherName);
+  const mother = clean(t.MotherName), father = clean(t.FatherName);
   return { ok: true, gameName, sp, sex, bl, stats, phIndex, ph: phenotypes[phIndex].label, level, mother, father, isBred: !!(mother || father) };
 }
 
@@ -5698,50 +5705,63 @@ const _mountFingerprint = (sp, sex, stats) => `${sp}|${sex}|${STATS.map(s => sta
 /**
  * Match candidates to herd animals and work out what an import would change.
  * Rule 1: the tracker ID at the start of the in-game name (current or legacy species code).
- * Rule 2: the in-game name equals a herd animal's nickname, confirmed by sex, stats, phenotype and bloodline.
+ * Rule 2: the in-game name equals a herd animal's nickname.
+ * Rule 3: an animal without a name in game, by a full data match with an unnamed herd animal.
+ * Two passes: exact data matches first, so a look-alike entry cannot take an animal that another entry matches exactly;
+ * then the tracker ID or a nickname that is unique in its species, where differences show up as Changed.
  * Every herd animal can be claimed once. Everything else is new.
  */
 function planMountImport(text) {
   const { candidates, skipped, total } = readMountsFile(text);
   const shortLookup = buildShortLookup();
-  const claimed = new Set();
-  // Several herd animals can share an ID (older files), so keep every one and pick an unclaimed match
-  const byKey = new Map();
-  animals.forEach(a => { const k = `${a.sp}#${a.spId}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(a); });
-  const byNick = new Map();
-  animals.forEach(a => { if (a.nickname) { const k = `${a.sp}|${a.nickname}`; if (!byNick.has(k)) byNick.set(k, []); byNick.get(k).push(a); } });
+  // "DR12 ..." -> "Dune Raptor#12" when the code belongs to that species (or is a code an older version used)
+  const idKey = (sp, name) => {
+    const m = name.match(/^([A-Za-z]{2})0*(\d+)\b/);
+    if (!m) return null;
+    const code = m[1].toUpperCase();
+    return (shortLookup[code] || MOUNT_LEGACY_SHORT[code]) === sp ? `${sp}#${parseInt(m[2])}` : null;
+  };
+  // Several herd animals can share an ID (older files), so keep every one
+  const byKey = new Map(), byNick = new Map();
+  animals.forEach(a => {
+    const k = `${a.sp}#${a.spId}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(a);
+    if (a.nickname) { const n = `${a.sp}|${a.nickname}`; if (!byNick.has(n)) byNick.set(n, []); byNick.get(n).push(a); }
+  });
   const fpCount = new Map(), fpAnimal = new Map();
   animals.forEach(a => { const k = _mountFingerprint(a.sp, a.sex, a.stats || {}); fpCount.set(k, (fpCount.get(k) || 0) + 1); fpAnimal.set(k, a); });
   const same = (c, a) => a.sex === c.sex && a.ph === c.ph && a.bl === c.bl && STATS.every(s => (a.stats?.[s] | 0) === c.stats[s]);
+  const claimed = new Set();
+  const freeOf = list => (list || []).filter(x => !claimed.has(x.id));
+  const claim = (c, a) => { claimed.add(a.id); c.match = a; };
+  candidates.forEach(c => { c.key = idKey(c.sp, c.gameName); c.match = null; });
+
+  for (const c of candidates) {                           // pass 1: exact matches
+    let a = null;
+    if (c.key) a = freeOf(byKey.get(c.key)).find(x => same(c, x));
+    if (!a && c.gameName) a = freeOf(byNick.get(`${c.sp}|${c.gameName}`)).find(x => same(c, x));
+    if (!a && !c.gameName) a = animals.find(x => x.sp === c.sp && !x.nickname && !claimed.has(x.id) && same(c, x)) || null;
+    if (a) claim(c, a);
+  }
+  // pass 2: identity by ID or unique nickname, data may differ. When several entries carry the same ID, the closest one wins
+  const diffCount = (c, a) => (a.sex !== c.sex) + (a.ph !== c.ph) + (a.bl !== c.bl) + STATS.filter(s => (a.stats?.[s] | 0) !== c.stats[s]).length;
+  const byId = candidates.filter(c => !c.match && c.key).map(c => { const a = freeOf(byKey.get(c.key))[0]; return a ? { c, a, d: diffCount(c, a) } : null; }).filter(Boolean);
+  byId.sort((x, y) => x.d - y.d);
+  for (const { c, a } of byId) if (!c.match && !claimed.has(a.id)) claim(c, a);
+  for (const c of candidates) {
+    if (c.match || !c.gameName) continue;
+    const free = freeOf(byNick.get(`${c.sp}|${c.gameName}`));
+    if (free.length === 1) claim(c, free[0]);
+  }
 
   const added = [], changed = [], unchanged = [];
   for (const c of candidates) {
-    let a = null;
-    const m = c.gameName.match(/^([A-Za-z]{2})0*(\d+)\b/);
-    if (m) {
-      const code = m[1].toUpperCase();
-      const sp = shortLookup[code] || MOUNT_LEGACY_SHORT[code];
-      if (sp === c.sp) {
-        const free = (byKey.get(`${c.sp}#${parseInt(m[2])}`) || []).filter(x => !claimed.has(x.id));
-        a = free.find(x => same(c, x)) || free[0] || null;
-      }
-    }
-    if (!a && c.gameName) {
-      const hit = (byNick.get(`${c.sp}|${c.gameName}`) || []).find(x => !claimed.has(x.id) && same(c, x));
-      if (hit) a = hit;
-    }
-    if (!a && !c.gameName) {
-      // An animal without a name in game can only be recognised by its data: one unclaimed, unnamed herd animal that matches on every field
-      const hits = animals.filter(x => x.sp === c.sp && !x.nickname && !claimed.has(x.id) && same(c, x));
-      if (hits.length === 1) a = hits[0];
-    }
+    const a = c.match;
     if (!a) {
       const fp = _mountFingerprint(c.sp, c.sex, c.stats);
       const hint = fpCount.get(fp) === 1 ? fpAnimal.get(fp) : null;
       added.push({ c, hint: hint && !claimed.has(hint.id) ? displayName(hint) : '' });
       continue;
     }
-    claimed.add(a.id);
     const diffs = [];
     if (a.sex !== c.sex) diffs.push({ field: 'sex', from: a.sex, to: c.sex });
     STATS.forEach(s => { if ((a.stats?.[s] | 0) !== c.stats[s]) diffs.push({ field: s, from: a.stats?.[s] | 0, to: c.stats[s] }); });
@@ -5751,8 +5771,10 @@ function planMountImport(text) {
     if (c.level > 0 && a.level && a.level !== c.level) diffs.push({ field: 'level', from: a.level, to: c.level });
     if (diffs.length) changed.push({ c, a, diffs }); else unchanged.push({ c, a });
   }
-  // Herd animals marked as on the station that the file does not contain
-  const notInFile = animals.filter(a => a.status === 'Station' && !claimed.has(a.id));
+  // Herd animals marked as on the station that no entry claimed. An entry that was skipped still proves the animal is there
+  const skippedNames = [...new Set(skipped.map(s => s.gameName).filter(Boolean))];
+  const inSkipped = a => skippedNames.some(n => n === a.nickname || idKey(a.sp, n) === `${a.sp}#${a.spId}`);
+  const notInFile = animals.filter(a => a.status === 'Station' && !claimed.has(a.id) && !inSkipped(a));
   return { total, added, changed, unchanged, skipped, notInFile, claimedIds: [...claimed] };
 }
 
@@ -5783,34 +5805,56 @@ function applyMountImport(plan, choices) {
     };
     animals.push(a); byName.set(a.name, a); created.push({ a, c });
   });
-  // Parents: a parent imported in this run first, then a herd animal by name or nickname, else the in-game name as text
+  // Parents: a parent imported in this run first, then a herd animal by name or nickname, else the in-game name as text.
+  // A name that belongs to an animal of another species is not a parent
   const createdByGame = new Map();
   created.forEach(({ a, c }) => { const k = `${c.sp}|${c.gameName}`; createdByGame.set(k, createdByGame.has(k) ? null : a); });
   const herdByNick = new Map();
   animals.forEach(a => { if (a.nickname) { const k = `${a.sp}|${a.nickname}`; herdByNick.set(k, herdByNick.has(k) ? null : a); } });
-  const resolveParent = (sp, text) => {
+  const resolveParent = (self, sp, text) => {
     if (!text) return '';
-    const own = createdByGame.get(`${sp}|${text}`); if (own) return own.name;
-    const byN = byName.get(text); if (byN && byN.sp === sp) return byN.name;
-    const nick = herdByNick.get(`${sp}|${text}`); if (nick) return nick.name;
+    const own = createdByGame.get(`${sp}|${text}`); if (own && own !== self) return own.name;
+    const byN = byName.get(text); if (byN) return byN.sp === sp && byN !== self ? byN.name : '';
+    const nick = herdByNick.get(`${sp}|${text}`); if (nick && nick !== self) return nick.name;
     return text;
   };
-  created.forEach(({ a, c }) => {
-    a.p1 = resolveParent(c.sp, c.mother); a.p2 = resolveParent(c.sp, c.father);
-    const gens = [a.p1, a.p2].map(n => byName.get(n)).filter(Boolean).map(p => p.gen || 1);
-    if (gens.length) a.gen = Math.max(...gens) + 1;
-  });
-  // Changed fields the player left ticked
+  created.forEach(({ a, c }) => { a.p1 = resolveParent(a, c.sp, c.mother); a.p2 = resolveParent(a, c.sp, c.father); });
+  // Generation: one more than the highest linked parent, settled in passes so the order in the file does not matter
+  for (let pass = 0; pass < created.length; pass++) {
+    let moved = false;
+    for (const { a } of created) {
+      const gens = [a.p1, a.p2].map(n => byName.get(n)).filter(Boolean).map(p => p.gen || 1);
+      const g = gens.length ? Math.max(...gens) + 1 : 1;
+      if (g !== a.gen) { a.gen = g; moved = true; }
+    }
+    if (!moved) break;
+  }
+  created.forEach(({ a }) => { trackPhenotype(a.sp, a.ph, a.isBred); trackBloodline(a.sp, a.bl, a.isBred); });
+  // Changed fields the player left ticked. A generated name is refreshed afterwards, and so are the links that use it
   let fieldsApplied = 0;
-  plan.changed.forEach(({ a, diffs }) => diffs.forEach(d => {
-    if (!choices.diffKeys.has(`${a.id}|${d.field}`)) return;
-    fieldsApplied++;
-    if (d.field === 'sex') a.sex = d.to;
-    else if (d.field === 'phenotype') a.ph = d.to;
-    else if (d.field === 'bloodline') a.bl = d.to;
-    else if (d.field === 'level') a.level = d.to;
-    else if (STATS.includes(d.field)) { a.stats = a.stats || {}; a.stats[d.field] = d.to; a.total = getTotal(a.stats, a.sp); }
-  }));
+  plan.changed.forEach(({ a, diffs }) => {
+    const before = { bl: a.bl, ph: a.ph };
+    const wasAuto = a.name === computeName(a.sp, a.sex, a.bl, a.ph, a.stats || {}, a.spId);
+    let touched = false;
+    diffs.forEach(d => {
+      if (!choices.diffKeys.has(`${a.id}|${d.field}`)) return;
+      fieldsApplied++; touched = true;
+      if (d.field === 'sex') a.sex = d.to;
+      else if (d.field === 'phenotype') a.ph = d.to;
+      else if (d.field === 'bloodline') a.bl = d.to;
+      else if (d.field === 'level') a.level = d.to;
+      else if (STATS.includes(d.field)) { a.stats = a.stats || {}; a.stats[d.field] = d.to; a.total = getTotal(a.stats, a.sp); }
+    });
+    if (!touched) return;
+    if (before.bl !== a.bl || before.ph !== a.ph) adjustSightingsOnEdit(a.sp, before.bl, a.bl, before.ph, a.ph, !!a.isBred, !!a.isBred);
+    if (wasAuto) {
+      const fresh = computeName(a.sp, a.sex, a.bl, a.ph, a.stats, a.spId);
+      if (fresh !== a.name) {
+        animals.forEach(o => { if (o.p1 === a.name) o.p1 = fresh; if (o.p2 === a.name) o.p2 = fresh; });
+        byName.delete(a.name); a.name = fresh; byName.set(fresh, a);
+      }
+    }
+  });
   // Matched animals: fill in a level the tracker did not have, and set the station status if asked
   [...plan.changed, ...plan.unchanged].forEach(({ a, c }) => { if (c.level > 0 && !a.level) a.level = c.level; });
   if (choices.stationAll) plan.claimedIds.forEach(id => { const a = animals.find(x => x.id === id); if (a) a.status = 'Station'; });
@@ -5908,6 +5952,7 @@ function importMounts(e) {
     catch (err) { showToast(err.message || 'Could not read the file'); return; }
     showMountPreview(plan, file.name);
   };
+  reader.onerror = () => showToast('Could not read the file');
   reader.readAsText(file);
 }
 

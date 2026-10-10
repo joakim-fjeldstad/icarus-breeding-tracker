@@ -233,7 +233,7 @@ Under **⚙ Settings → Export & Import**, click **🎮 Import from game** and 
 - **Not in file** — animals marked as on the station in the tracker that are not in the file, because they were taken down to a world or lost. Leave them, or set their status to `?` or Dead
 - **Skipped** — entries the tracker cannot use, with the reason (Cat and Dog, a record without a bloodline from an old game version, a newer save format)
 
-How animals are recognised: an animal whose in-game name starts with its tracker ID (for example `DR12`) is that animal. Animals imported earlier are recognised by their nickname. Importing the same file twice adds nothing.
+How animals are recognised: an animal whose in-game name starts with its tracker ID (for example `DR12`) is that animal. Animals imported earlier are recognised by their in-game name (the nickname), as long as it is unique within the species. Entries that could not be read are not reported as missing. Importing the same file twice adds nothing.
 
 Good to know:
 
