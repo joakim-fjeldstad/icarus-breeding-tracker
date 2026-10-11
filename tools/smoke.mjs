@@ -521,7 +521,7 @@ const crafted = await ev(`(() => { try {
   const flags = [...document.querySelectorAll('#herd-tbody .herd-flag')].map(f => f.textContent);
   const alien = animals.find(a => a.name === 'Alien'); viewAnimal(alien.id); closeViewPanel();
   const noIds = animals.filter(a => /^No Id/.test(a.name));
-  return { cards, species: Object.keys(SPECIES_DATA).length, proto: ({}).tamed === undefined && ({}).bred === undefined, moaObj: typeof goalsMap.Moa === 'object' && Array.isArray(goalsMap.Buffalo.goals) && Array.isArray(goalsMap.Buffalo.pairs) && !Array.isArray(goalsMap.Buffalo.phenoWeights) && typeof goalsMap.Buffalo.blPriority === 'object',
+  return { cards, species: Object.keys(SPECIES_DATA).length, proto: ({}).tamed === undefined && ({}).bred === undefined, moaObj: typeof goalsMap.Moa === 'object' && Array.isArray(goalsMap.Buffalo.goals) && !('pairs' in goalsMap.Buffalo) && !Array.isArray(goalsMap.Buffalo.phenoWeights) && typeof goalsMap.Buffalo.blPriority === 'object',
     unknownKeyDropped: !('Not A Species' in goalsMap), unknown: flags.filter(f => f === 'unknown species').length, dup: flags.filter(f => f === 'duplicate ID').length, notes: animals.find(a => a.name === 'Dup Id').notes,
     cleared: animals.find(a => a.name === 'Proto Moa').bl === '' && animals.find(a => a.name === 'Proto Moa').ph === '', kept: animals.find(a => a.name === 'Good Moa').bl === 'Bold' && animals.find(a => a.name === 'Good Moa').ph === SPECIES_DATA.Moa.phenotypes[7].label,
     noIdsAssigned: noIds.every(a => a.spId > 0) && noIds[0].spId !== noIds[1].spId, pwned: !!(window.__pwned6 || document.getElementById('pwn6')), rawInHerd: !!document.querySelector('#herd-tbody img, #herd-tbody script'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
@@ -551,7 +551,7 @@ const sinks = await ev(`(() => { try {
   setAdviceStatus(2, 'Reserve');
   const pigs = animals.filter(a => a.sp === 'Pig').map(a => a.spId);
   return { pairsImg, viewerImg, optImg, goals: JSON.stringify(goalsMap.Moa.goals), slinker: JSON.stringify(pairsMap.Slinker), pigs, pwned: !!window.__pwned7, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('pair tiles, viewer slots and optimiser goals escape file text; bad pairs and spId 0 are tolerated', !sinks.error && !sinks.pairsImg && !sinks.viewerImg && !sinks.optImg && !sinks.pwned && sinks.goals === '[{"bl":"","ph":""},{"bl":"Alpha","ph":""}]' && /^\[/.test(sinks.slinker) && sinks.pigs.length === 2 && sinks.pigs[0] !== sinks.pigs[1] && sinks.pigs.every(n => n > 0), JSON.stringify(sinks));
+check('pair tiles, viewer slots and the optimiser escape file text, a goal with hostile text is dropped on load and the remaining goal kept; bad pairs and spId 0 are tolerated', !sinks.error && !sinks.pairsImg && !sinks.viewerImg && !sinks.optImg && !sinks.pwned && sinks.goals === '[{"bl":"Alpha","ph":""}]' && /^\[/.test(sinks.slinker) && sinks.pigs.length === 2 && sinks.pigs[0] !== sinks.pigs[1] && sinks.pigs.every(n => n > 0), JSON.stringify(sinks));
 const v5 = await ev(`(() => { try {
   applyData({ version: 5, herd: [{ id: 1, spId: 1, sp: 'Swamp Raptor', sex: 'F', bl: 'Wild', ph: 'Swamp P3', gen: 1, p1: '', p2: '', stats: {}, name: 'Old', status: '?', notes: '' }],
     pairCounts: { 'Swamp Raptor': 3 }, phenoStats: { 'Swamp Raptor': { 'Swamp P3': { tamed: 2, bred: 0 }, 'Swamp Raptor (base)': { tamed: 1, bred: 0 } } }, blStats: { 'Swamp Raptor': { Wild: { tamed: 2, bred: 0 } } }, cardWidths: { 'Swamp Raptor': 'wide' },
@@ -578,7 +578,7 @@ const goalNums = await ev(`(async () => { try {
   await new Promise(r => setTimeout(r, 150));
   const n = sp => [goalsMap[sp].reserveTarget, goalsMap[sp].statGoal].join();
   return { moa: n('Moa'), buffalo: n('Buffalo'), pig: n('Pig'), el: !!document.getElementById('pwn8a'), pwned: !!window.__pwned8a, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('a reserve target or stat goal from a file becomes a number in range and never HTML', !goalNums.error && goalNums.moa === '0,60' && goalNums.buffalo === '999,999' && goalNums.pig === '0,0' && !goalNums.el && !goalNums.pwned, JSON.stringify(goalNums));
+check('a reserve target or stat goal from a file becomes a number in range and never HTML', !goalNums.error && goalNums.moa === '0,60' && goalNums.buffalo === '999,60' && goalNums.pig === '0,0' && !goalNums.el && !goalNums.pwned, JSON.stringify(goalNums));
 const parentErr = await ev(`(async () => { try {
   applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild', { p1: ${JSON.stringify(pwn8('b'))} })] }); migrateMemory();
   showTab('entry'); editAnimal(1);
@@ -628,15 +628,16 @@ const counts = await ev(`(() => { try {
   migrateMemory(); initPairs();
   return { moa: pairCounts.Moa, got: [pairCounts.Buffalo, pairCounts.Pig].join(), defaults: [SPECIES_DATA.Buffalo.defaultPairs, SPECIES_DATA.Pig.defaultPairs].join(),
     tusker: pairCounts.Tusker, slots: pairsMap.Moa.length, slot110Gone: !pairsMap.Moa.some(p => p.m === 'BM05 M0-Wild'), slot110Status: animals[0].status,
-    goalSlots: goalsMap.Moa.pairs.length, slinkerGoalSlots: goalsMap.Slinker.pairs.length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('pair counts from a file are clamped to 1..99, and slot lists are cut to match', !counts.error && counts.moa === 99 && counts.got === counts.defaults && counts.tusker === 1 && counts.slots === 99 && counts.slot110Gone && counts.slot110Status === 'Reserve' && counts.goalSlots === 99 && counts.slinkerGoalSlots === 99, JSON.stringify(counts));
+    goalSlots: 'pairs' in goalsMap.Moa, slinkerGoalSlots: 'pairs' in goalsMap.Slinker, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+// The per-pair goal lists that v5 emptied are dropped on load (#25), so a 150-entry list from a file is gone instead of cut to 99
+check('pair counts from a file are clamped to 1..99, slot lists are cut to match, and old per-pair goal lists are dropped', !counts.error && counts.moa === 99 && counts.got === counts.defaults && counts.tusker === 1 && counts.slots === 99 && counts.slot110Gone && counts.slot110Status === 'Reserve' && counts.goalSlots === false && counts.slinkerGoalSlots === false, JSON.stringify(counts));
 const uiLimits = await ev(`(() => { try {
   applyData({ version: 7, herd: [], pairCounts: { Moa: 99 } }); migrateMemory();
   addPairSlot('Moa'); const afterAdd = pairCounts.Moa;
   updateReserveTarget('Moa', 5000); const target = goalsMap.Moa.reserveTarget;
   updateStatGoal('Moa', 5000); const statGoal = goalsMap.Moa.statGoal;
   return { afterAdd, target, statGoal, toast: document.getElementById('toast').textContent, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('the UI cannot add a 100th pair slot or set a reserve target or stat goal above 999', !uiLimits.error && uiLimits.afterAdd === 99 && uiLimits.target === 999 && uiLimits.statGoal === 999 && /maximum of 99/.test(uiLimits.toast), JSON.stringify(uiLimits));
+check('the UI cannot add a 100th pair slot, set a reserve target above 999 or a stat goal above the species maximum', !uiLimits.error && uiLimits.afterAdd === 99 && uiLimits.target === 999 && uiLimits.statGoal === 60 && /maximum of 99/.test(uiLimits.toast), JSON.stringify(uiLimits));
 const spIds = await ev(`(() => { try {
   applyData({ version: 7, nextSpAid: { PG: 'x', BM: -4, BF: 7, DR: 1e300 }, herd: [
     __mk8(1, 0, 'Pig', 'M', 'Wild', 'No Id 1'), __mk8(2, 0, 'Pig', 'F', 'Wild', 'No Id 2'),
@@ -1091,6 +1092,396 @@ const amp = await ev(`(() => { try {
 check('a name with & shows once in toasts and is linked in the log', !amp.error && /^Salt & Pepper → /.test(amp.toast) && amp.links === 'Salt & Pepper|Salt & Pepper', JSON.stringify(amp));
 
 await ev(`(() => { applyData(JSON.parse(window.__snap24)); migrateMemory(); saveAndRefreshFull(); showTab('herd'); document.getElementById('f-species').value = 'Dune Raptor'; onSpeciesChange(); return true; })()`);
+
+// ── #25 and #26: goals, scoring and species visibility ──────────────────────────────
+// Each check below fails on v0.31e
+await ev(`window.__snap25 = JSON.stringify(getAllData()); true`);
+// The advice and placement panels score against the species goals set on the Goals card, not the per-pair goals that v5 emptied.
+// Both males have the same stats, so only the Alpha goal separates them
+const goalScore = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Wild', { status: 'Breed', stats: __st24(5) }), __mk8(2, 2, 'Moa', 'M', 'Alpha', 'BM02 Alpha', { stats: __st24(5) })],
+    pairs: { Moa: [{ m: 'BM01 Wild', f: '' }, { m: '', f: '' }] }, pairCounts: { Moa: 2 }, goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }] } } }); migrateMemory();
+  showTab('entry'); showPairAssignPanel(2);
+  const placement = computePairSuggestions(animals[1]).find(s => s.pairIdx === 0)?.delta, panel = document.getElementById('pair-assign-panel').textContent;
+  dismissPairAssign();
+  const s = document.getElementById('f-species'); s.value = 'Moa'; onSpeciesChange();
+  document.getElementById('f-sex').value = 'M'; document.getElementById('f-bloodline').value = 'Alpha'; STATS.forEach(k => { document.getElementById('stat-' + k).value = 5; });
+  renderAdvice();
+  const advice = document.getElementById('advice-panel').textContent.replace(/\\s+/g, ' '), adviceDelta = computeAdvice()?.results.find(r => r.pi === 0)?.delta;
+  document.getElementById('advice-panel').classList.remove('show'); resetFormUI(); s.value = 'Dune Raptor'; onSpeciesChange();
+  return { placement, panelGoal: /Alpha × any phenotype/.test(panel), adviceDelta, adviceGoal: /Goal: Alpha × any phenotype/.test(advice), noGoal: /No goal set/.test(advice), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the advice and placement panels score against the species goals and name them, never "No goal set" (#25)', !goalScore.error && goalScore.placement === 120
+  && goalScore.panelGoal && goalScore.adviceDelta === 120 && goalScore.adviceGoal && !goalScore.noGoal, JSON.stringify(goalScore));
+// The Unstable star switched off stays off: in the Goals tab, after a reload from a herd file and after a reload from browser
+// storage (which always loads as version 1). A file without the star still gets the ★★ default
+const unstable = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Unstable', 'BM01 Unstable')] }); migrateMemory();
+  const before = goalsMap.Moa.blPriority.Unstable;
+  showTab('goals'); updateBlPriority('Moa', BLOODLINES.indexOf('Unstable'), 0);
+  const afterClick = goalsMap.Moa.blPriority.Unstable;
+  applyData(JSON.parse(JSON.stringify(getAllData()))); migrateMemory();
+  const afterFile = goalsMap.Moa.blPriority.Unstable;
+  save(); saveGoals(); loadFromLocalStorage(); migrateMemory();
+  const afterStorage = goalsMap.Moa.blPriority.Unstable;
+  applyData({ version: 7, herd: [], goals: { Moa: { goals: [], blPriority: {} } } }); migrateMemory();
+  return { before, afterClick, afterFile, afterStorage, absent: goalsMap.Moa.blPriority.Unstable, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the Unstable star switched off stays off in the Goals tab and after a reload from a file or browser storage (#25)', !unstable.error && unstable.before === 2
+  && unstable.afterClick === 0 && unstable.afterFile === 0 && unstable.afterStorage === 0 && unstable.absent === 2, JSON.stringify(unstable));
+// The stat goal set on the Goals card drives the optimiser's cull suggestions and the Breeding Suggestions. With a goal of 30 the
+// unpaired male with 36 is stored, not culled, the one with 24 is still culled, and the Unstable female with 36 is not "below stat goal"
+await ev(`window.__statGoalHerd = () => { applyData({ version: 7, herd: [
+    __mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Top', { status: 'Breed', stats: __st24(9) }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Top', { status: 'Breed', stats: __st24(9) }),
+    __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 Good', { status: 'Keep', stats: __st24(6) }), __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 Weak', { status: 'Keep', stats: __st24(4) }),
+    __mk8(5, 5, 'Moa', 'F', 'Unstable', 'BM05 Unstable', { status: 'Keep', stats: __st24(6) })],
+  pairs: { Moa: [{ m: 'BM01 Top', f: 'BM02 Top' }] }, pairCounts: { Moa: 1 } }); migrateMemory(); }; true`);
+const statGoal = await ev(`(() => { try {
+  __statGoalHerd(); showTab('goals'); renderGoals();
+  const input = document.querySelector('#goals-grid .stat-goal-input[data-sp="Moa"]');
+  if (input) { input.value = '30'; input.dispatchEvent(new Event('change', { bubbles: true })); } else { goalsMap.Moa.statGoal = 30; renderGoals(); }   // no field: still show what the logic does
+  const plan = buildOptimizePlanForSpecies('Moa', new Set());
+  const act = name => { const s = plan.suggestions.find(x => x.animal.name === name); return s ? s.action + ': ' + s.reason : 'none'; };
+  const unstableRow = [...document.querySelectorAll('#goals-grid .suggestion-row')].find(r => r.textContent.includes('BM05 Unstable'))?.textContent || 'no row';
+  return { stored: goalsMap.Moa.statGoal, shown: document.querySelector('#goals-grid .stat-goal-input[data-sp="Moa"]')?.value, good: act('BM03 Good'), weak: act('BM04 Weak'),
+    unstable: act('BM05 Unstable'), unstableBelow: /below stat goal/.test(unstableRow), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the stat goal on the Goals card drives the optimiser and Breeding Suggestions: an animal that meets it is not culled (#25)', !statGoal.error && statGoal.stored === 30
+  && statGoal.shown === '30' && /^store: /.test(statGoal.good) && statGoal.weak === 'cull: No valued traits, below stat goal (24/30)' && /^store: /.test(statGoal.unstable)
+  && !statGoal.unstableBelow, JSON.stringify(statGoal));
+// The "outclassed" rule is gone (owner decision on #25): with a stat goal below the maximum it would cull an animal that meets the goal
+// because a paired animal of its sex scores higher. No reason says Outclassed, and the optimiser has no such branch left
+const outclassed = await ev(`(() => { try {
+  __statGoalHerd(); goalsMap.Moa.statGoal = 30;
+  const reasons = buildOptimizePlanForSpecies('Moa', new Set()).suggestions.map(s => s.reason);
+  const src = buildOptimizePlanForSpecies.toString();
+  return { reasons: reasons.join(' | '), inReasons: reasons.some(r => /outclassed/i.test(r)), inCode: src.includes('Outclassed by paired') || src.includes('_isOutclassed'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the optimiser has no "outclassed" rule: no suggestion reason says Outclassed, and the code has no such reason or test (#25)', !outclassed.error && outclassed.reasons
+  && !outclassed.inReasons && !outclassed.inCode, JSON.stringify(outclassed));
+// The upgrade row picks the best free animal of each sex, not the first in herd order: the highest total, then the goal match
+const upgrade = await ev(`(() => { try {
+  applyData({ version: 7, herd: [
+      __mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Pair', { status: 'Breed', stats: __st24(5) }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Pair', { status: 'Breed', stats: __st24(5) }),
+      __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 First', { status: 'Keep', stats: __st24(6) }), __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 Better', { status: 'Keep', stats: __st24(8) }),
+      __mk8(5, 5, 'Moa', 'F', 'Wild', 'BM05 First', { status: 'Keep', stats: __st24(7) }), __mk8(6, 6, 'Moa', 'F', 'Alpha', 'BM06 Goal', { status: 'Keep', stats: __st24(7) })],
+    pairs: { Moa: [{ m: 'BM01 Pair', f: 'BM02 Pair' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }] } } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const card = document.querySelector('.pair-pool[data-pool-sp="Moa"]')?.closest('.pair-species-card');
+  return { best: card ? [...card.querySelectorAll('.upgrade-box .upg-name')].map(n => n.textContent.trim()).join() : 'no card', error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the upgrade row shows the highest scoring free male and female, whatever the herd order (#25)', !upgrade.error && upgrade.best === 'BM04 Better,BM06 Goal', JSON.stringify(upgrade));
+// Pair tiles show ⚠ for a negatively starred bloodline or phenotype, and the tile's tooltip names the trait; clean tiles have no mark
+const warnTiles = await ev(`(() => { try {
+  const choc = SPECIES_DATA.Moa.phenotypes[1].label;
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Bold', 'BM01 Bold', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Choc', { status: 'Breed', ph: choc }),
+      __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 Clean', { status: 'Breed' }), __mk8(4, 4, 'Moa', 'F', 'Wild', 'BM04 Clean', { status: 'Breed' })],
+    pairs: { Moa: [{ m: 'BM01 Bold', f: 'BM02 Choc' }, { m: 'BM03 Clean', f: 'BM04 Clean' }] }, pairCounts: { Moa: 2 },
+    goals: { Moa: { goals: [], blPriority: { Bold: -2 }, phenoWeights: { [choc]: -1 } } } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const tiles = [...document.querySelectorAll('.pair-slot .animal-tile')].filter(t => t.dataset.psp === 'Moa');
+  const warned = tiles.filter(t => t.querySelector('.tile-warn'));
+  return { tiles: tiles.length, warned: warned.map(t => animals.find(a => a.id === +t.dataset.aid)?.name).join(), titles: warned.map(t => t.title.replace(/^.* · ⚠ /, '')).join(' | '), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('pair tiles show a ⚠ mark for a negatively starred bloodline or phenotype, named in the tooltip (#25)', !warnTiles.error && warnTiles.tiles === 4
+  && warnTiles.warned === 'BM01 Bold,BM02 Choc' && warnTiles.titles === 'negative trait: Bold bloodline | negative trait: P1 Chocolate phenotype', JSON.stringify(warnTiles));
+// The pair count is kept once, in the pair counts: adding, removing and deleting pair slots no longer keeps a per-pair goal list
+// in step, and a saved herd carries none
+const slotTracking = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Slot', { status: 'Breed' })], pairs: { Moa: [{ m: 'BM01 Slot', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('pairs'); addPairSlot('Moa'); addPairSlot('Moa'); removePairSlot('Moa'); deletePairRow('Moa', 0);
+  const saved = getAllData();
+  return { count: pairCounts.Moa, slots: pairsMap.Moa.length, goalLists: Object.keys(saved.goals).filter(sp => 'pairs' in saved.goals[sp]).length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('pair slots are counted once: adding and removing slots keeps no per-pair goal list, and a saved herd has none (#25)', !slotTracking.error && slotTracking.count === 1
+  && slotTracking.slots === 1 && slotTracking.goalLists === 0, JSON.stringify(slotTracking));
+// Species that cannot be bred: defaultPairs is 0, and they get no Pairs card, pair slot buttons, goal stars, advice or optimiser
+// suggestions. A file from v0.31e with a Horse pair (no stored count, so a count of 0 would cut it) loads and saves without losing it
+const noBreed = await ev(`(() => { try {
+  const defaults = Object.entries(SPECIES_DATA).filter(([, c]) => c.breedable === false ? c.defaultPairs !== 0 : !(c.defaultPairs >= 1)).map(([sp]) => sp);
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Horse', 'M', 'Wild', 'HR01 Stallion', { status: 'Breed' }), __mk8(2, 2, 'Horse', 'F', 'Wild', 'HR02 Mare', { status: 'Breed' }),
+      __mk8(3, 3, 'Horse', 'M', 'Bold', 'HR03 Spare', { status: 'Keep' }), __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 Moa', { status: 'Keep' })],
+    pairs: { Horse: [{ m: 'HR01 Stallion', f: 'HR02 Mare' }] }, goals: { Horse: { goals: [], blPriority: { Wild: 3 } } } }); migrateMemory();
+  const kept = () => (pairsMap.Horse || []).map(p => p.m + '|' + p.f).join();
+  const loaded = kept(), statuses = animals.map(a => a.status).join();
+  showTab('pairs'); renderPairs();
+  const pairsCard = !!document.querySelector('#tab-pairs [data-sp="Horse"], #tab-pairs [data-pool-sp="Horse"]');
+  const addOption = [...document.querySelectorAll('#pairs-add-species option')].some(o => o.value === 'Horse');
+  const plan = buildOptimizePlanForSpecies('Horse', new Set());
+  showOptimizeModal(null); const optHorse = [...document.querySelectorAll('.opt-sp-hdr')].some(h => /Horse/.test(h.textContent)); closeOptimizeModal();
+  showTab('goals'); renderGoals();
+  const goalCard = [...document.querySelectorAll('#goals-grid .goals-card')].find(c => / Horse/.test(c.querySelector('h3')?.textContent || ''));
+  const stars = goalCard ? goalCard.querySelectorAll('.star-btn').length : 'no card';
+  viewAnimal(1); const slotButtons = document.querySelectorAll('.view-pair-slot').length; closeViewPanel();
+  showTab('entry'); const s = document.getElementById('f-species'); s.value = 'Horse'; onSpeciesChange(); document.getElementById('f-sex').value = 'M'; document.getElementById('stat-VIG').value = 5;
+  const advice = computeAdvice(); resetFormUI(); s.value = 'Dune Raptor'; onSpeciesChange();
+  applyData(JSON.parse(JSON.stringify(getAllData()))); migrateMemory();
+  return { defaults: defaults.join(), loaded, statuses, reloaded: kept(), stars: goalsMap.Horse.blPriority.Wild, pairsCard, addOption, proposed: plan.proposedPairs.length, suggested: plan.suggestions.length,
+    optHorse, goalStars: stars, slotButtons, advice: advice === null ? 'none' : advice.results.length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a species that cannot be bred has no pair slots, Pairs card, goal stars, advice or optimiser suggestions, and its saved pair is kept (#26)', !noBreed.error
+  && noBreed.defaults === '' && noBreed.loaded === 'HR01 Stallion|HR02 Mare' && noBreed.statuses === 'Breed,Breed,Keep,Keep' && noBreed.reloaded === noBreed.loaded && noBreed.stars === 3
+  && !noBreed.pairsCard && !noBreed.addOption && noBreed.proposed === 0 && noBreed.suggested === 0 && !noBreed.optHorse && noBreed.goalStars === 0 && noBreed.slotButtons === 0
+  && noBreed.advice === 'none', JSON.stringify(noBreed));
+// Pairs and Goals show cards only for species with animals; the others are "+ Species" chips under the grid, in card order. A fresh
+// herd shows only chips (no 52 cards), the first animal of a species brings its card without a reload, a chip opens a card without
+// adding an animal, and a collapsed species with animals stays a collapsed chip at the top
+const speciesChips = await ev(`(() => { try {
+  applyData({ version: 7, herd: [], speciesOrder: ['Pig', 'Buffalo', 'Moa'] }); migrateMemory();
+  const expected = getSpeciesOrder().filter(sp => SPECIES_DATA[sp].breedable !== false), expectedGoals = getSpeciesOrder();
+  const view = tab => ({ cards: document.querySelectorAll('#' + tab + '-grid .' + (tab === 'pairs' ? 'pair-species-card' : 'goals-card')).length,
+    chips: [...document.querySelectorAll('#' + tab + '-add-chips .add-chip')].map(c => c.dataset.sp) });
+  showTab('pairs'); const freshPairs = view('pairs'); showTab('goals'); const freshGoals = view('goals');
+  showTab('entry'); const s = document.getElementById('f-species'); s.value = 'Moa'; onSpeciesChange();
+  document.getElementById('f-sex').value = 'M'; document.getElementById('f-bloodline').value = 'Wild'; STATS.forEach(k => { document.getElementById('stat-' + k).value = 5; });
+  saveAnimal(); dismissPairAssign();
+  const pairsAfterAdd = view('pairs');   // the save renders Pairs while the New Animal tab is still showing
+  s.value = 'Dune Raptor'; onSpeciesChange();
+  showTab('goals'); const goalsAfterAdd = view('goals');
+  collapsedPairSpecies.add('Buffalo'); collapsedPairSpecies.add('Moa');
+  showTab('pairs'); document.querySelector('#pairs-add-chips .add-chip[data-sp="Buffalo"]')?.click();
+  const opened = view('pairs'), collapsedMoa = [...document.querySelectorAll('#pairs-chips-row .species-chip')].some(c => / Moa/.test(c.textContent));
+  collapsedPairSpecies.delete('Moa');
+  return { expected: expected.join(), expectedGoals: expectedGoals.join(), freshPairs: freshPairs.cards + ':' + freshPairs.chips.join(), freshGoals: freshGoals.cards + ':' + freshGoals.chips.join(),
+    pairsAfterAdd: pairsAfterAdd.cards + ':' + pairsAfterAdd.chips.includes('Moa'), goalsAfterAdd: goalsAfterAdd.cards + ':' + goalsAfterAdd.chips.includes('Moa'),
+    opened: opened.cards + ':' + opened.chips.includes('Buffalo'), buffaloExpanded: !collapsedPairSpecies.has('Buffalo'), collapsedMoa, herd: animals.length, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('Pairs and Goals show cards only for species with animals, chips for the rest in card order (Pairs: breedable only); the first animal or a chip brings the card (#26)', !speciesChips.error
+  && speciesChips.freshPairs === '0:' + speciesChips.expected && speciesChips.freshGoals === '0:' + speciesChips.expectedGoals && speciesChips.pairsAfterAdd === '1:false'
+  && speciesChips.goalsAfterAdd === '1:false' && speciesChips.opened === '1:false' && speciesChips.buffaloExpanded && speciesChips.collapsedMoa && speciesChips.herd === 1,
+  JSON.stringify(speciesChips));
+// No two species dots are closer than SPECIES_COLOUR_MIN_DE in CIEDE2000 (Sharma, Wu and Dalal 2005), the perceptual colour
+// difference: about 1 is just noticeable, 5 is clearly different side by side. Horse, Hyena and Cattle were 1.3 to 3.1 apart.
+// The formula is checked against two pairs from the published test data first, so a wrong implementation cannot pass
+const SPECIES_COLOUR_MIN_DE = 5;
+const hexToLab = hex => {
+  const n = parseInt(hex.slice(1), 16), lin = c => (c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  const [r, g, b] = [lin(n >> 16 & 255), lin(n >> 8 & 255), lin(n & 255)];   // sRGB, D65
+  const f = t => t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116;
+  const fx = f((0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047), fy = f(0.2126729 * r + 0.7151522 * g + 0.0721750 * b), fz = f((0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+};
+const ciede2000 = ([L1, a1, b1], [L2, a2, b2]) => {
+  const rad = Math.PI / 180, p7 = c => Math.sqrt(c ** 7 / (c ** 7 + 25 ** 7));
+  const G = 0.5 * (1 - p7((Math.hypot(a1, b1) + Math.hypot(a2, b2)) / 2));
+  const a1p = (1 + G) * a1, a2p = (1 + G) * a2, C1 = Math.hypot(a1p, b1), C2 = Math.hypot(a2p, b2);
+  const hue = (b, a) => (a === 0 && b === 0 ? 0 : (Math.atan2(b, a) / rad + 360) % 360), h1 = hue(b1, a1p), h2 = hue(b2, a2p);
+  let dh = C1 * C2 === 0 ? 0 : h2 - h1; if (dh > 180) dh -= 360; else if (dh < -180) dh += 360;
+  const dH = 2 * Math.sqrt(C1 * C2) * Math.sin(dh / 2 * rad), Lm = (L1 + L2) / 2, Cm = (C1 + C2) / 2;
+  let hm = h1 + h2; if (C1 * C2 !== 0) { if (Math.abs(h1 - h2) > 180) hm += hm < 360 ? 360 : -360; hm /= 2; }
+  const T = 1 - 0.17 * Math.cos((hm - 30) * rad) + 0.24 * Math.cos(2 * hm * rad) + 0.32 * Math.cos((3 * hm + 6) * rad) - 0.20 * Math.cos((4 * hm - 63) * rad);
+  const SL = 1 + 0.015 * (Lm - 50) ** 2 / Math.sqrt(20 + (Lm - 50) ** 2), SC = 1 + 0.045 * Cm, SH = 1 + 0.015 * Cm * T;
+  const RT = -Math.sin(60 * Math.exp(-(((hm - 275) / 25) ** 2)) * rad) * 2 * p7(Cm);
+  return Math.sqrt(((L2 - L1) / SL) ** 2 + ((C2 - C1) / SC) ** 2 + (dH / SH) ** 2 + RT * ((C2 - C1) / SC) * (dH / SH));
+};
+const deSelfTest = [ciede2000([50, 2.6772, -79.7751], [50, 0, -82.7485]), ciede2000([50, 2.5, 0], [73, 25, -18])].map(d => d.toFixed(4)).join();
+const speciesColours = await ev(`Object.entries(SPECIES_DATA).map(([sp, c]) => [sp, c.color])`);
+const closeColours = [];
+speciesColours.forEach(([s1, c1], i) => speciesColours.slice(i + 1).forEach(([s2, c2]) => {
+  const de = /^#[0-9a-fA-F]{6}$/.test(c1) && /^#[0-9a-fA-F]{6}$/.test(c2) ? ciede2000(hexToLab(c1), hexToLab(c2)) : 0;
+  if (de < SPECIES_COLOUR_MIN_DE) closeColours.push(`${s1} ${c1} / ${s2} ${c2}: ${de.toFixed(2)}`);
+}));
+check(`no two species dot colours are closer than ${SPECIES_COLOUR_MIN_DE} in CIEDE2000 (#26)`, deSelfTest === '2.0425,27.1492' && closeColours.length === 0,
+  deSelfTest === '2.0425,27.1492' ? closeColours.join(' | ') : `CIEDE2000 self-test gave ${deSelfTest}, expected 2.0425,27.1492`);
+// Pairs cards name the fertility serum with the same text as the New Animal form
+const serums = await ev(`(() => { try {
+  const sps = ['Moa', 'Gribbler', 'Cattle'];
+  applyData({ version: 7, herd: sps.map((sp, i) => __mk8(i + 1, 1, sp, 'M', 'Wild', 'Animal ' + i)) }); migrateMemory();
+  showTab('entry'); const s = document.getElementById('f-species');
+  const form = Object.fromEntries(sps.map(sp => { s.value = sp; onSpeciesChange(); return [sp, document.getElementById('breed-info').textContent]; }));
+  s.value = 'Dune Raptor'; onSpeciesChange();
+  showTab('pairs'); renderPairs();
+  const onCard = Object.fromEntries(sps.map(sp => [sp, document.querySelector('.pair-pool[data-pool-sp="' + sp + '"]')?.closest('.pair-species-card')?.querySelector('.pair-serum')?.textContent ?? 'none']));
+  return { mismatch: sps.filter(sp => !form[sp] || onCard[sp] !== form[sp]).map(sp => sp + ': ' + onCard[sp] + ' / ' + form[sp]).join(' | '), moa: onCard.Moa, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('Pairs cards show the serum with the same text as the New Animal form (#26)', !serums.error && serums.mismatch === '' && /^🧬 Breed with Moa Fertility Serum\./.test(serums.moa), JSON.stringify(serums));
+
+// ── Review round on v0.32 (#25 and #26). Each check below fails on the first v0.32 draft ──────────────────────────
+// Advice from the New Animal form for one sex: the panel text and the score of each pair slot
+await ev(`window.__advise = (sp, sex, bl, stats) => { showTab('entry'); const s = document.getElementById('f-species'); s.value = sp; onSpeciesChange();
+  document.getElementById('f-sex').value = sex; document.getElementById('f-bloodline').value = bl;
+  STATS.forEach(k => { document.getElementById('stat-' + k).value = stats[k]; }); renderAdvice();
+  const text = document.getElementById('advice-panel').textContent.replace(/\\s+/g, ' ');
+  document.getElementById('advice-panel').classList.remove('show'); resetFormUI(); s.value = 'Dune Raptor'; onSpeciesChange(); return text; }; true`);
+// A temp breeder is a Temp animal or one that matches no goal. With goals Alpha × any and any × Black, a Wild Black male matches
+// a goal: it shows ✓G and an Alpha newcomer replaces it as a goal carrier, gaining the goal bloodline. A Temp Alpha female beaten
+// by 2 points is not "replaced": the slot shows Weaker with -20, never "+-20"
+const tempRule = await ev(`(() => { try {
+  const black = SPECIES_DATA.Moa.phenotypes[7].label;
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Black', { status: 'Breed', ph: black, stats: __st24(5) }),
+      __mk8(2, 2, 'Moa', 'F', 'Alpha', 'BM02 Temp', { status: 'Temp', stats: { VIG: 5, FIT: 6, PHY: 6, REF: 5, TGH: 5, ADP: 5, INS: 5 } })],
+    pairs: { Moa: [{ m: 'BM01 Black', f: 'BM02 Temp' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }, { bl: '', ph: black }] } } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const tileG = !!document.querySelector('.pair-slot .animal-tile[data-aid="1"] .tile-goal');
+  const male = __advise('Moa', 'M', 'Alpha', __st24(6)), female = __advise('Moa', 'F', 'Alpha', __st24(5));
+  return { tileG, maleTemp: /Replace temp breeder/.test(male), maleGains: /Gains goal bloodline \\(Alpha\\)/.test(male),
+    femaleTemp: /Replace temp breeder/.test(female), femaleWeaker: /Weaker/.test(female), minus20: /(^|\\s)-20(\\s|$)/.test(female), plusMinus: /\\+-/.test(female + male), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('advice calls only a Temp or goal-less occupant a temp breeder, and a lower score shows with its own sign (#25 review)', !tempRule.error && tempRule.tileG
+  && !tempRule.maleTemp && tempRule.maleGains && !tempRule.femaleTemp && tempRule.femaleWeaker && tempRule.minus20 && !tempRule.plusMinus, JSON.stringify(tempRule));
+// A goal carrier below the stat goal is reserved, never culled as "No valued traits"
+const carrier = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Alpha', 'BM01 Top', { status: 'Breed', stats: __st24(9) }), __mk8(2, 2, 'Moa', 'F', 'Alpha', 'BM02 Top', { status: 'Breed', stats: __st24(9) }),
+      __mk8(3, 3, 'Moa', 'M', 'Alpha', 'BM03 Carrier', { status: 'Keep', stats: __st24(8) })],
+    pairs: { Moa: [{ m: 'BM01 Top', f: 'BM02 Top' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }], statGoal: 50 } } }); migrateMemory();
+  const s = buildOptimizePlanForSpecies('Moa', new Set()).suggestions.find(x => x.animal.name === 'BM03 Carrier');
+  return { suggestion: s ? s.action + ': ' + s.reason : 'none', error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('an unpaired goal carrier below the stat goal is reserved, not culled (#25 review)', !carrier.error
+  && carrier.suggestion === 'reserve: Matches a species goal but below stat goal (48/50)', JSON.stringify(carrier));
+// The stat goal is stored in 0..maximum: typing 80 stores 60, a file's 75 loads as 60, and the optimiser shows the active goal
+const statClamp = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa', { status: 'Keep' })], goals: { Moa: { goals: [], statGoal: 75 } } }); migrateMemory();
+  const fromFile = goalsMap.Moa.statGoal;
+  showTab('goals'); renderGoals();
+  const input = document.querySelector('#goals-grid .stat-goal-input[data-sp="Moa"]');
+  input.value = '80'; input.dispatchEvent(new Event('change', { bubbles: true }));
+  const typed = goalsMap.Moa.statGoal;
+  goalsMap.Moa.statGoal = 50; showOptimizeModal('Moa');
+  const header = document.querySelector('.opt-sp-hdr')?.textContent || ''; closeOptimizeModal();
+  return { fromFile, typed, header: /Stat goal 50\\/60/.test(header), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the stat goal is kept between 0 and the species maximum, and the optimiser shows it (#25 review)', !statClamp.error && statClamp.fromFile === 60
+  && statClamp.typed === 60 && statClamp.header, JSON.stringify(statClamp));
+// "Recommend: Discard or set as Reserve" is not shown for a new animal that meets the stat goal, and is still shown below it
+const discardAdvice = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Top', { status: 'Breed', stats: __st24(9) }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Top', { status: 'Breed', stats: __st24(9) })],
+    pairs: { Moa: [{ m: 'BM01 Top', f: 'BM02 Top' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [], statGoal: 30 } } }); migrateMemory();
+  return { meets: /Recommend: Discard/.test(__advise('Moa', 'M', 'Wild', __st24(6))), below: /Recommend: Discard/.test(__advise('Moa', 'M', 'Wild', __st24(4))), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('the advice recommends discarding only a new animal below the stat goal (#25 review)', !discardAdvice.error && !discardAdvice.meets && discardAdvice.below, JSON.stringify(discardAdvice));
+// A goal from a file that names an unknown bloodline is dropped, not turned into "any × any"; a blank row added in the Goals tab
+// stays but matches nothing, so no tile shows ✓G and the advice says "No goal set"
+const blankGoals = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa', { status: 'Breed', stats: __st24(5) })], pairs: { Moa: [{ m: 'BM01 Moa', f: '' }, { m: '', f: '' }] }, pairCounts: { Moa: 2 },
+    goals: { Moa: { goals: [{ bl: 'x', ph: '' }] } } }); migrateMemory();
+  const loaded = JSON.stringify(goalsMap.Moa.goals);
+  addSpeciesGoal('Moa');
+  showTab('pairs'); renderPairs();
+  const tileG = !!document.querySelector('.pair-slot .animal-tile[data-aid="1"] .tile-goal');
+  const advice = __advise('Moa', 'M', 'Wild', __st24(6));
+  return { loaded, afterAdd: goalsMap.Moa.goals.length, tileG, noGoal: /No goal set/.test(advice), optimiserMatch: matchesSpeciesGoal('Moa', animals[0]), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('a file goal with an unknown bloodline is dropped, and a blank goal row matches nothing (#25 review)', !blankGoals.error && blankGoals.loaded === '[]'
+  && blankGoals.afterAdd === 1 && !blankGoals.tileG && blankGoals.noGoal && !blankGoals.optimiserMatch, JSON.stringify(blankGoals));
+// Goal lists are deduplicated and capped at 32: a file with 1,000 identical goals loads as 1 and Pairs renders; the Goals tab
+// refuses a 33rd goal with a message
+const goalCap = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Alpha', 'BM01 Moa', { status: 'Breed' })], pairs: { Moa: [{ m: 'BM01 Moa', f: '' }] }, pairCounts: { Moa: 1 },
+    goals: { Moa: { goals: Array.from({ length: 1000 }, () => ({ bl: 'Alpha', ph: '' })) } } }); migrateMemory();
+  const loaded = goalsMap.Moa.goals.length;
+  showTab('pairs'); renderPairs(); const card = !!document.querySelector('.pair-pool[data-pool-sp="Moa"]');
+  for (let i = 0; i < 40; i++) addSpeciesGoal('Moa');
+  return { loaded, card, afterAdds: goalsMap.Moa.goals.length, toast: /maximum of 32 goals/.test(document.getElementById('toast').textContent), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('a species keeps at most 32 goals without repeats: 1,000 identical goals load as 1, and a 33rd is refused (#25 review)', !goalCap.error && goalCap.loaded === 1
+  && goalCap.card && goalCap.afterAdds === 32 && goalCap.toast, JSON.stringify(goalCap));
+// The stat goal field has no inline handler; a bubbling change event reaches the listener on the grid
+const statField = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa', { status: 'Keep' })] }); migrateMemory();
+  showTab('goals'); renderGoals();
+  const input = document.querySelector('#goals-grid .stat-goal-input[data-sp="Moa"]');
+  const inline = [...document.querySelectorAll('#goals-grid .stat-goal-input')].some(el => [...el.attributes].some(at => /^on/i.test(at.name)));
+  input.value = '42'; input.dispatchEvent(new Event('change', { bubbles: true }));
+  return { inline, stored: goalsMap.Moa.statGoal, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the stat goal field has no inline handler and is handled by one listener on the Goals grid (#25 review)', !statField.error && !statField.inline
+  && statField.stored === 42, JSON.stringify(statField));
+// Goals chips also offer species that cannot be bred; such a card holds only the breed-out stat and a note. Pairs never offers them
+const noBreedChip = await ev(`(() => { try {
+  applyData({ version: 7, herd: [] }); migrateMemory();
+  showTab('pairs'); const onPairs = !!document.querySelector('#pairs-add-chips .add-chip[data-sp="Horse"]');
+  showTab('goals'); const chip = document.querySelector('#goals-add-chips .add-chip[data-sp="Horse"]'); chip?.click();
+  const card = [...document.querySelectorAll('#goals-grid .goals-card')].find(c => / Horse/.test(c.querySelector('h3')?.textContent || ''));
+  return { onPairs, onGoals: !!chip, card: !!card, breedOut: !!card?.querySelector('.breedout-select'), note: !!card?.querySelector('.goals-no-breed'),
+    stars: card ? card.querySelectorAll('.star-btn').length : -1, radar: !!card?.querySelector('canvas'), sections: card ? card.querySelectorAll('.goals-section-hdr').length : -1, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('Goals chips offer species that cannot be bred, whose card holds only the breed-out stat and a note; Pairs does not (#26 review)', !noBreedChip.error
+  && !noBreedChip.onPairs && noBreedChip.onGoals && noBreedChip.card && noBreedChip.breedOut && noBreedChip.note && noBreedChip.stars === 0 && !noBreedChip.radar
+  && noBreedChip.sections === 1, JSON.stringify(noBreedChip));
+// First run: "No animals yet" follows the herd, not the cards. A herd of only species that cannot be bred is told so on Pairs,
+// and Optimize All says there is nothing to optimize
+const firstRun = await ev(`(() => { try {
+  applyData({ version: 7, herd: [] }); migrateMemory();
+  showTab('pairs'); document.querySelector('#pairs-add-chips .add-chip[data-sp="Moa"]')?.click();
+  const emptyWithCard = document.querySelector('#pairs-add-chips .add-chips-lbl')?.textContent || '';
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Horse', 'M', 'Wild', 'HR01 Horse'), __mk8(2, 1, 'Kiwi', 'F', 'Wild', 'KW01 Kiwi')] }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const unbred = document.querySelector('#pairs-add-chips .add-chips-lbl')?.textContent || '';
+  showOptimizeModal(null); const modal = !!document.getElementById('opt-overlay'); closeOptimizeModal();
+  return { emptyWithCard: /^No animals yet\\. Add one/.test(emptyWithCard), unbred, modal, toast: document.getElementById('toast').textContent, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('first-run text follows the herd, and a herd that cannot be bred is told there is nothing to pair or optimize (#26 review)', !firstRun.error && firstRun.emptyWithCard
+  && /^Horse, Kiwi cannot be bred, so there is nothing to pair/.test(firstRun.unbred) && !firstRun.modal && /^Nothing to optimize/.test(firstRun.toast), JSON.stringify(firstRun));
+// A species that cannot be bred and has no stored count takes the length of its saved slot list, never a bare 0; without a list
+// the count stays unset
+const noBreedCount = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Horse', 'M', 'Wild', 'HR01 A'), __mk8(2, 2, 'Horse', 'F', 'Wild', 'HR02 B')],
+    pairs: { Horse: [{ m: 'HR01 A', f: '' }, { m: '', f: 'HR02 B' }] } }); migrateMemory();
+  const withList = [pairCounts.Horse, pairsMap.Horse.length].join();
+  applyData({ version: 7, herd: [] }); migrateMemory(); initPairs();
+  return { withList, without: Object.hasOwn(pairCounts, 'Horse') ? pairCounts.Horse : 'unset', error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a species that cannot be bred keeps a count that covers its saved slot list, never a bare 0 (#26 review)', !noBreedCount.error && noBreedCount.withList === '2,2'
+  && noBreedCount.without === 'unset', JSON.stringify(noBreedCount));
+// Deleting the last animal of a species while Goals is open removes its card at once, and the species becomes a chip
+const goalsDelete = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa'), __mk8(2, 1, 'Buffalo', 'F', 'Wild', 'BF01 Buffalo')] }); migrateMemory();
+  showTab('goals');
+  const has = () => [...document.querySelectorAll('#goals-grid .goals-card h3')].some(h => / Buffalo/.test(h.textContent));
+  const before = has(); deleteAnimal(2, true);
+  return { before, after: has(), chip: !!document.querySelector('#goals-add-chips .add-chip[data-sp="Buffalo"]'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('deleting the last animal of a species with Goals open removes its card at once (#26 review)', !goalsDelete.error && goalsDelete.before && !goalsDelete.after
+  && goalsDelete.chip, JSON.stringify(goalsDelete));
+
+// ── Re-review round on v0.32. Each check below fails on the second v0.32 draft ──────────────────────────────────────
+// A repeat made in the Goals tab stays until the next load, where it goes
+const uiRepeat = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Alpha', 'BM01 Moa')], goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }] } } }); migrateMemory();
+  showTab('goals'); addSpeciesGoal('Moa'); updateSpeciesGoal('Moa', 1, 'bl', 'Alpha');
+  const afterPick = goalsMap.Moa.goals.length, rows = document.querySelectorAll('#goals-grid .goal-pair-row').length;
+  applyData(JSON.parse(JSON.stringify(getAllData()))); migrateMemory();
+  return { afterPick, rows, afterLoad: goalsMap.Moa.goals.length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a goal row picked in the Goals tab to repeat another goal stays, and the repeat goes on the next load (#25 re-review)', !uiRepeat.error && uiRepeat.afterPick === 2
+  && uiRepeat.rows === 2 && uiRepeat.afterLoad === 1, JSON.stringify(uiRepeat));
+// A blank goal row is no goal for the optimiser or Breeding Suggestions either; a real goal keeps its row number from the Goals card
+const blankRow = await ev(`(() => { try {
+  const herd = () => [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Dad', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Mum', { status: 'Breed' }),
+    __mk8(3, 3, 'Moa', 'F', 'Wild', 'BM03 Kid', { status: 'Keep', isBred: true, gen: 2, p1: 'BM01 Dad', p2: 'BM02 Mum' })];
+  applyData({ version: 7, herd: herd(), pairs: { Moa: [{ m: '', f: '' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [{ bl: '', ph: '' }] } } }); migrateMemory();
+  const badge = buildOptimizePlanForSpecies('Moa', new Set()).proposedPairs.map(p => p.goalLabel || '').join(), blank = renderSuggestions('Moa');
+  applyData({ version: 7, herd: herd(), pairs: { Moa: [{ m: '', f: '' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [{ bl: '', ph: '' }, { bl: 'Wild', ph: '' }] } } }); migrateMemory();
+  const second = renderSuggestions('Moa');
+  return { badge, goal1: /Goal 1/.test(blank), achieved: /Goals achieved/.test(blank), rowTwo: /Goal 2: Wild/.test(second) && !/Goal 1/.test(second), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('a blank goal row gives no optimiser goal badge, pair recommendation or "goal achieved", and a real goal keeps its row number (#25 re-review)', !blankRow.error
+  && blankRow.badge === '' && !blankRow.goal1 && !blankRow.achieved && blankRow.rowTwo, JSON.stringify(blankRow));
+// With a stat goal of 0 a stored animal is described by the goal it meets, not as having good stats
+const storeReason = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Top', { status: 'Breed', stats: __st24(9) }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Top', { status: 'Breed', stats: __st24(9) }),
+      __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 Low', { status: 'Keep', stats: __st24(2) })],
+    pairs: { Moa: [{ m: 'BM01 Top', f: 'BM02 Top' }] }, pairCounts: { Moa: 1 }, goals: { Moa: { goals: [], statGoal: 0 } } }); migrateMemory();
+  const s = buildOptimizePlanForSpecies('Moa', new Set()).suggestions.find(x => x.animal.name === 'BM03 Low');
+  return { suggestion: s ? s.action + ': ' + s.reason : 'none', error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a stored animal is described by the stat goal it meets (#25 re-review)', !storeReason.error && storeReason.suggestion === 'store: Meets stat goal (12/0); no free pair slot',
+  JSON.stringify(storeReason));
+// A stat goal from a file outside the range is moved into it and the file is saved once; the next load saves nothing
+const statSave = await ev(`(() => { const origSave = save; try {
+  const file = JSON.stringify({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa')], goals: { Moa: { goals: [], statGoal: 75 } } });
+  let saves = 0, disk = file; save = () => { saves++; disk = JSON.stringify(getAllData()); };
+  applyData(JSON.parse(disk)); migrateMemory(); const first = saves, stored = JSON.parse(disk).goals.Moa.statGoal; saves = 0;
+  applyData(JSON.parse(disk)); migrateMemory();
+  return { first, stored, second: saves, error: '' }; } catch (e) { return { error: e.message }; } finally { save = origSave; } })()`);
+check('a stat goal from a file above the maximum is saved once as the maximum (#25 re-review)', !statSave.error && statSave.first === 1 && statSave.stored === 60
+  && statSave.second === 0, JSON.stringify(statSave));
+// The bloodline-upgrade advice prints its stats with a sign and says "lower stats" only when they are lower
+const blUpgrade = await ev(`(() => { try {
+  const black = SPECIES_DATA.Moa.phenotypes[7].label;
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Black', { status: 'Breed', ph: black, stats: __st24(5) })], pairs: { Moa: [{ m: 'BM01 Black', f: '' }] },
+    pairCounts: { Moa: 1 }, goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }, { bl: '', ph: black }], phenoWeights: { [black]: 3 } } } }); migrateMemory();
+  const text = __advise('Moa', 'M', 'Alpha', { VIG: 5, FIT: 6, PHY: 5, REF: 5, TGH: 5, ADP: 5, INS: 5 });
+  return { upgrade: /Bloodline Upgrade/.test(text), lower: /lower stats/.test(text), plusOne: /Stats: \\+1 \\(31 vs 30\\)/.test(text), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('the bloodline-upgrade advice shows +1 for higher stats and says "lower stats" only when they are lower (#25 re-review)', !blUpgrade.error && blUpgrade.upgrade
+  && !blUpgrade.lower && blUpgrade.plusOne, JSON.stringify(blUpgrade));
+// The "cannot be bred" label on Pairs gives way to "No animals yet:" once a card is opened from a chip
+const unbredLabel = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Horse', 'M', 'Wild', 'HR01 Horse')] }); migrateMemory();
+  showTab('pairs'); const before = document.querySelector('#pairs-add-chips .add-chips-lbl')?.textContent || '';
+  document.querySelector('#pairs-add-chips .add-chip[data-sp="Moa"]')?.click();
+  const after = document.querySelector('#pairs-add-chips .add-chips-lbl')?.textContent || '';
+  return { before: /^Horse cannot be bred/.test(before), after, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the Pairs label for a herd that cannot be bred changes once a card is opened (#26 re-review)', !unbredLabel.error && unbredLabel.before
+  && unbredLabel.after === 'No animals yet:', JSON.stringify(unbredLabel));
+
+await ev(`(() => { applyData(JSON.parse(window.__snap25)); migrateMemory(); saveAndRefreshFull(); showTab('herd'); document.getElementById('f-species').value = 'Dune Raptor'; onSpeciesChange(); return true; })()`);
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));

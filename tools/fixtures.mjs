@@ -50,6 +50,7 @@ export const SEED_SHOWCASE = `(() => {
   goalsMap['Dune Raptor'].goals = [{ bl: 'Alpha', ph: SPECIES_DATA['Dune Raptor'].phenotypes[7].label }];
   goalsMap['Dune Raptor'].blPriority = { Alpha: 3, Unstable: 2, Timid: -1 };
   goalsMap['Dune Raptor'].phenoWeights = { [SPECIES_DATA['Dune Raptor'].phenotypes[7].label]: 3 };
+  goalsMap['Slinker'].blPriority.Hardy = -1;   // the paired Hardy female gets the ⚠ mark on her Pairs tile
   const comet = animals.find(a => a.nickname === 'Comet');
   addLog('Dusty added to the herd', 'add'); addLog(comet.name + ' added to the herd (bred from ' + dr3.name + ' and ' + dr4.name + ')', 'add'); addLog('Tank: Keep → Station', 'status');
   addLog(dr3.name + ': Undecided → Keep', 'status');
