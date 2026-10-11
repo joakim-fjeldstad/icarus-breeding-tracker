@@ -3,16 +3,25 @@
 /**
  * JavaScript (as a string) that seeds a small, realistic-looking herd inside the page.
  * Six Dune Raptors across three generations with parents linked, a handful of other species,
- * nicknames on a few animals, varied statuses, and one breeding pair per breedable species.
+ * nicknames on a few animals, varied statuses, and pairs for Dune Raptor (two), Slinker and Moa (one each).
+ * It fails loudly: strict mode makes an assignment to a renamed global throw, and mk() throws when a species,
+ * bloodline, phenotype, status or stats length no longer matches the app's own lists.
  */
 export const SEED_SHOWCASE = `(() => {
+  'use strict';
   animals.length = 0; pairsMap = {}; goalsMap = {}; pairCounts = {}; nextSpAid = {}; phenoStats = {}; blStats = {}; logEntries = [];
   let id = 1;
   const mk = (sp, sex, bl, phIdx, stats, extra = {}) => {
-    const cfg = SPECIES_DATA[sp]; const spId = getNextSpId(sp); const st = {}; STATS.forEach((s, i) => st[s] = stats[i]);
-    const ph = cfg.phenotypes[Math.min(phIdx, cfg.phenotypes.length - 1)].label;
+    const cfg = SPECIES_DATA[sp];
+    if (!cfg) throw new Error('fixture: unknown species ' + sp);
+    if (!BLOODLINES.includes(bl)) throw new Error('fixture: unknown bloodline ' + bl);
+    if (!cfg.phenotypes[phIdx]) throw new Error('fixture: ' + sp + ' has no phenotype index ' + phIdx);
+    if (!STATUS_LIST.includes(extra.status)) throw new Error('fixture: unknown status ' + extra.status);
+    if (stats.length !== STATS.length) throw new Error('fixture: expected ' + STATS.length + ' stats, got ' + stats.length);
+    const spId = getNextSpId(sp); const st = {}; STATS.forEach((s, i) => st[s] = stats[i]);
+    const ph = cfg.phenotypes[phIdx].label;
     const a = { id: id++, spId, sp, sex, bl, ph, gen: 1, p1: '', p2: '', isBred: false, stats: st, total: getTotal(st, sp),
-      name: computeName(sp, sex, bl, ph, st, spId), nickname: '', favorite: false, status: '?', notes: '', ...extra };
+      name: computeName(sp, sex, bl, ph, st, spId), nickname: '', favorite: false, notes: '', ...extra };
     animals.push(a); return a;
   };
   const dr1 = mk('Dune Raptor', 'F', 'Wild',  0, [5, 6, 4, 5, 6, 5, 3], { status: 'Breed', level: 24, nickname: 'Dusty' });

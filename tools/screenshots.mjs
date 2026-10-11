@@ -1,8 +1,8 @@
 // Screenshot generator for the README. Seeds a synthetic herd (no real animals) and captures every view.
 //
-// Usage:  node tools/screenshots.mjs [path/to/index.html]    (writes PNGs into screenshots/ next to this script's parent)
+// Usage:  node tools/screenshots.mjs [path/to/index.html]    (the PNGs always go to this repository's screenshots/ folder)
 // Needs:  Node.js 22 or newer, and Chrome, Chromium or Edge. Set CHROME_PATH if the browser is not found.
-// Run it before a release that changes the UI, then commit the images together with the README.
+// Run it when a change alters a view shown in the README, look through the images, then commit them together with the README.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -15,7 +15,8 @@ const outDir = join(root, 'screenshots');
 mkdirSync(outDir, { recursive: true });
 
 const WIDTH = 1400, HEIGHT = 900;
-// Freeze the clock so the footer time and log timestamps are identical on every run (2026-10-10 12:00 UTC)
+// Freeze the clock so the log banner and log timestamps are identical on every run (2026-10-10 12:00 UTC).
+// Only `new Date()` and `Date.now()` are frozen; calling `Date()` without `new` is not supported, and index.html never does it.
 const FROZEN = Date.UTC(2026, 9, 10, 12, 0, 0);
 const freezeClock = `(() => { const T = ${FROZEN}, Real = Date;
   class FrozenDate extends Real { constructor(...a) { if (a.length === 0) super(T); else super(...a); } static now() { return T; } }
@@ -42,7 +43,7 @@ await ev(`useBrowserStorage(); true`);
 await sleep(400);
 const n = await ev(SEED_SHOWCASE);
 console.log('seeded', n, 'animals');
-const names = await ev(`({ comet: animals.find(a => a.nickname === 'Comet').name, cometId: animals.find(a => a.nickname === 'Comet').id, dr1: animals.find(a => a.nickname === 'Dusty'), dr2: animals.find(a => a.sp === 'Dune Raptor' && a.sex === 'M' && !a.isBred && a.bl === 'Alpha'), tank: animals.find(a => a.nickname === 'Tank') })`);
+const names = await ev(`({ comet: animals.find(a => a.nickname === 'Comet').name, cometId: animals.find(a => a.nickname === 'Comet').id, dr1: animals.find(a => a.nickname === 'Dusty'), dr2: animals.find(a => a.sp === 'Dune Raptor' && a.sex === 'M' && !a.isBred && a.bl === 'Alpha') })`);
 
 // 1. New Animal, empty
 await ev(`showTab('entry'); resetFormUI(); window.scrollTo(0, 0); true`);
@@ -54,7 +55,8 @@ await ev(`(() => { const s = document.getElementById('f-species'); s.value = 'Du
   [7, 6, 7, 6, 6, 5, 4].forEach((v, i) => { const el = document.getElementById('stat-' + STATS[i]); el.value = v; onStatInput(el, STATS[i]); });
   document.getElementById('f-p1').value = ${JSON.stringify(names.dr1.name)}; onParentInput(1);
   document.getElementById('f-p2').value = ${JSON.stringify(names.dr2.name)}; onParentInput(2);
-  updateName(); return true; })()`).catch(e => console.error('fill form:', e.message));
+  document.getElementById('f-gen').value = 2; // Gen is a manual field; both parents are generation 1
+  updateName(); return true; })()`);
 await shot('new-animal-filled', { full: true });
 await ev(`resetFormUI(); true`);
 // 3. My Herd
@@ -66,7 +68,7 @@ await shot('animal-view', { full: true });
 await ev(`closeViewPanel(); true`);
 // 5. Edit Animal
 await ev(`editAnimal(${names.cometId}); showTab('entry'); window.scrollTo(0, 0); true`);
-await shot('animal-edit');
+await shot('animal-edit', { full: true });
 await ev(`editingId = null; resetFormUI(); true`);
 // 6. Breeding Pairs
 await ev(`showTab('pairs'); renderPairs(); window.scrollTo(0, 0); true`);

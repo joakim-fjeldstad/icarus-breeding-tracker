@@ -1,6 +1,6 @@
 // Shared headless-browser harness for tools/smoke.mjs and tools/screenshots.mjs.
 // Drives Chrome, Chromium or Edge through the DevTools protocol with Node's built-in fetch and WebSocket; no packages.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,17 +26,34 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   const profile = mkdtempSync(join(tmpdir(), 'icarus-browser-'));
   // Port 0 lets the browser pick a free port and write it to DevToolsActivePort in the profile.
   // CI runners cannot give Chrome a working sandbox; the only page loaded is the app under test.
+  // The extra flags keep the test browser from contacting other servers or loading extensions installed on the system.
   const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run',
+    '--disable-background-networking', '--disable-component-update', '--disable-extensions', '--disable-sync', '--disable-default-apps',
+    '--no-default-browser-check', '--metrics-recording-only', '--no-proxy-server',
     `--window-size=${width},${height}`, '--hide-scrollbars', ...(process.env.CI ? ['--no-sandbox'] : []), 'about:blank'], { stdio: 'ignore' });
   let finished = false;
+  // Delete the profile only after Chrome has exited, because Chrome holds files in it until then (retries cover a late release on Windows)
+  const removeProfile = () => {
+    for (let i = 0; i < 10; i++) {
+      try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); return; } catch { /* still locked */ }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    }
+  };
+  // Always stop the browser and remove the throwaway profile, however the script ends
   process.on('exit', () => {
+    // chrome.kill() ends only the main process on Windows; its helper processes keep the profile locked, so end the whole tree
+    if (process.platform === 'win32' && chrome.pid) spawnSync('taskkill', ['/PID', String(chrome.pid), '/T', '/F'], { stdio: 'ignore' });
     try { chrome.kill(); } catch { /* already gone */ }
-    try { rmSync(profile, { recursive: true, force: true }); } catch { /* Windows may still hold a lock */ }
+    removeProfile();
   });
+  // Ctrl+C and termination do not run exit handlers by themselves; turn them into a normal exit
+  process.once('SIGINT', () => process.exit(130));
+  process.once('SIGTERM', () => process.exit(143));
   const fail = msg => { console.error(msg); process.exit(2); };
   chrome.on('error', e => fail(`Browser did not start: ${CHROME} (${e.message})`));
   chrome.on('exit', code => { if (!finished) fail(`Browser exited unexpectedly (code ${code}): ${CHROME}`); });
 
+  // Wait for the port file, then for a page target (the first /json reply can come before the page exists)
   let pageTarget;
   for (let i = 0; i < 75 && !pageTarget; i++) {
     try {
@@ -49,6 +66,7 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.addEventListener('open', res, { once: true }); ws.addEventListener('error', rej, { once: true }); })
     .catch(() => fail('Could not connect to the browser'));
+  // A lost connection ends the run instead of leaving commands waiting forever
   ws.addEventListener('close', () => { if (!finished) fail('Lost the connection to the browser'); });
   let seq = 0; const pending = new Map(); const errors = [];
   ws.addEventListener('message', ev => {
@@ -60,7 +78,7 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   const send = (method, params = {}) => new Promise((res, rej) => {
     const id = ++seq;
     const timer = setTimeout(() => { pending.delete(id); rej(new Error(`${method} timed out after 30 s`)); }, 30000);
-    pending.set(id, m => { clearTimeout(timer); res(m); });
+    pending.set(id, m => { clearTimeout(timer); if (m.error) rej(new Error(`${method} failed: ${m.error.message}`)); else res(m); });
     ws.send(JSON.stringify({ id, method, params }));
   });
   const ev = async expr => {
@@ -73,6 +91,7 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
   await send('Page.navigate', { url: pageUrl });
+  // Wait until the app has loaded, instead of a fixed delay
   for (let i = 0; i < 75; i++) {
     if (await ev(`document.readyState === 'complete' && typeof SPECIES_DATA === 'object'`).catch(() => false)) break;
     await sleep(200);
@@ -81,6 +100,7 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   const close = async () => {
     finished = true; ws.close(); chrome.kill();
     await new Promise(r => { chrome.once('exit', r); setTimeout(r, 3000); });
+    removeProfile();
   };
   return { ev, send, errors, close };
 }

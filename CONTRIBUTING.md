@@ -57,6 +57,8 @@ New features and bug fixes should add a check. For a bug fix, the check should f
 
 Both tools use `tools/browser.mjs` for the browser and `tools/fixtures.mjs` as the shared source of synthetic data. Never use a real herd or save file in tests or screenshots.
 
+The scripts under `tools/` run on your computer with your user rights, so review changes to them before running them locally on a branch you did not write.
+
 ## Pull requests
 
 - One topic per pull request, branched from `main`.
