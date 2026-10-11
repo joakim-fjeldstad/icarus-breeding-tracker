@@ -4,7 +4,7 @@
 // Usage:  node tools/smoke.mjs [path/to/index.html]    (defaults to index.html in the repository root)
 // Needs:  Node.js 22 or newer, and Chrome, Chromium or Edge. Set CHROME_PATH if the browser is not found.
 // Output: one PASS/FAIL line per check, then a summary. Exit code 1 if any check fails, 2 if the browser cannot start.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openPage, sleep } from './browser.mjs';
@@ -692,6 +692,126 @@ const later = await ev(`(() => { const by = bl => animals.find(a => a.bl === bl)
   return { noId: noId.spId, two: two.spId + ':' + two.name, three: three.spId + ':' + three.name, parentIsTwo: animals.find(a => a.name === three.p1) === two }; })()`);
 check('a CSV row without an ID never takes an ID that a later row in the file keeps', later.noId === 4 && later.two === '2:BM02 F30-Alpha' && later.three === '3:BM03 M30-Bold' && later.parentIsTwo, JSON.stringify({ later, msg: laterCsv.msg }));
 await ev(`applyData(JSON.parse(window.__snap9)); migrateMemory(); saveAndRefreshFull(); true`);
+
+// ── #21: feedback links ─────────────────────────────────────────────────────────────
+// Every GitHub link in the page goes to this repository (the links used to point at the account the project had before)
+const REPO = 'https://github.com/joakim-fjeldstad/icarus-breeding-tracker/', REPO_ISSUES = REPO + 'issues';
+const feedback = await ev(`(() => {
+  const card = [...document.querySelectorAll('.entry-card')].find(c => /Feedback/.test(c.querySelector('h2')?.textContent || ''));
+  return { elsewhere: [...document.querySelectorAll('[href]')].map(e => e.getAttribute('href')).filter(h => /github\\.com/i.test(h) && !h.startsWith(${JSON.stringify(REPO)})),
+           links: card ? [...card.querySelectorAll('a[href]')].map(a => a.getAttribute('href')) : [] }; })()`);
+check('feedback links point at the current repository', feedback.elsewhere.length === 0 && feedback.links.length === 3
+  && feedback.links.every(h => h === REPO_ISSUES || h.startsWith(REPO_ISSUES + '/new?')), JSON.stringify(feedback));
+// The issue templates live in this repository, next to tools/; renaming one or changing its label must fail here
+const TEMPLATE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '.github', 'ISSUE_TEMPLATE');
+let templateFiles = [];
+try { templateFiles = readdirSync(TEMPLATE_DIR); } catch { /* no folder: every template link is reported below */ }
+const newIssueLinks = feedback.links.filter(h => h.startsWith(REPO_ISSUES + '/new?'));
+const templateProblems = newIssueLinks.flatMap(h => {
+  const q = new URL(h).searchParams, t = q.get('template'), l = q.get('labels');
+  if (!t || !templateFiles.includes(t)) return [`${t}: no file in .github/ISSUE_TEMPLATE`];
+  const fm = readFileSync(join(TEMPLATE_DIR, t), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const own = ((fm && fm[1].match(/^labels:[ \t]*(.*)$/m)) || [])[1]?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+  return l !== null && l !== own ? [`${t}: link has labels=${l}, template has "${own}"`] : [];
+});
+check('feedback links name issue templates that exist, with the same labels', newIssueLinks.length === 2 && templateProblems.length === 0,
+  templateProblems.join(' | ') || `${newIssueLinks.length} template links`);
+
+// ── #23: internal animal IDs are unique ─────────────────────────────────────────────
+// The clock is held still while animals are added, so every ID is minted in the same millisecond. That is the case where
+// Date.now() + Math.random() repeated IDs (a double holds only about 4096 fractions per millisecond), so these checks fail every run before v0.31c
+await ev(`window.__snap23 = JSON.stringify(getAllData()); true`);
+const holdClock = () => ev(`(() => { const t = Date.now(); window.__realNow = Date.now; Date.now = () => t; return true; })()`);
+const releaseClock = () => ev(`(() => { if (window.__realNow) Date.now = window.__realNow; window.__realNow = null; return true; })()`);
+await holdClock();
+const idLoop = await ev(`(() => { const orig = saveAndRefreshFull; try {
+  saveAndRefreshFull = () => {};   // 600 full renders would only slow the test down
+  editingId = null; resetFormUI();
+  const before = animals.length, s = document.getElementById('f-species');
+  for (let i = 0; i < 600; i++) {
+    s.value = 'Moa'; onSpeciesChange();
+    document.getElementById('f-sex').value = i % 2 ? 'F' : 'M';
+    document.getElementById('f-bloodline').value = 'Wild';
+    saveAnimal();
+  }
+  const added = animals.slice(before);
+  return { added: added.length, distinct: new Set(added.map(a => a.id)).size, herdUnique: new Set(animals.map(a => a.id)).size === animals.length, error: '' };
+} catch (e) { return { error: e.message }; } finally { saveAndRefreshFull = orig; dismissPairAssign(); resetFormUI(); } })()`).catch(e => ({ error: e.message.split('\n')[0] }));
+await releaseClock();
+check('600 animals saved in one go get 600 different internal IDs', !idLoop.error && idLoop.added === 600 && idLoop.distinct === 600 && idLoop.herdUnique, JSON.stringify(idLoop));
+
+// A file from an older version: two animals share an ID and one has text as its ID. The first keeps its ID, the others get fresh ones and the file is saved
+const idTwins = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(5, 1, 'Moa', 'M', 'Wild', 'BM01 Twin A'), __mk8(5, 2, 'Moa', 'F', 'Wild', 'BM02 Twin B'), __mk8('x', 3, 'Moa', 'M', 'Bold', 'BM03 Text Id')] }); migrateMemory();
+  const ids = animals.map(a => a.id);
+  const saved = JSON.parse(localStorage.getItem(KEYS.HERD) || '[]').map(a => a.id);
+  const twinA = animals.find(a => a.name === 'BM01 Twin A'), firstKeeps = twinA.id === 5;
+  deleteAnimal(twinA.id, true);
+  return { ids, distinct: new Set(ids).size, finite: ids.every(Number.isFinite), firstKeeps, saved: saved.length === 3 && new Set(saved).size === 3 && saved.every(Number.isFinite),
+           left: animals.map(a => a.name).join(), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('repeated and text internal IDs from a file become unique, and Delete removes only the animal picked', !idTwins.error && idTwins.distinct === 3 && idTwins.finite
+  && idTwins.firstKeeps && idTwins.saved && idTwins.left === 'BM02 Twin B,BM03 Text Id', JSON.stringify(idTwins));
+
+// An ID too large to count past (1e300 + 1 === 1e300) would make every new ID the same; it is replaced on load like a repeat
+const idHuge = await ev(`(() => { const orig = saveAndRefreshFull; try {
+  applyData({ version: 7, herd: [__mk8(1e300, 1, 'Moa', 'M', 'Wild', 'BM01 Huge'), __mk8(3, 2, 'Moa', 'F', 'Wild', 'BM02 Small')] }); migrateMemory();
+  const huge = animals.find(a => a.name === 'BM01 Huge').id;
+  saveAndRefreshFull = () => {};
+  editingId = null; resetFormUI();
+  for (let i = 0; i < 2; i++) { document.getElementById('f-species').value = 'Moa'; onSpeciesChange(); saveAnimal(); }
+  const ids = animals.map(a => a.id);
+  return { huge, safe: Number.isFinite(huge) && huge > 0 && huge <= 1e15, small: animals.find(a => a.name === 'BM02 Small').id,
+           herd: ids.length, distinct: new Set(ids).size, error: '' };
+} catch (e) { return { error: e.message }; } finally { saveAndRefreshFull = orig; dismissPairAssign(); resetFormUI(); } })()`);
+check('an internal ID too large to count past is replaced on load, and new animals still get their own IDs', !idHuge.error && idHuge.safe && idHuge.small === 3
+  && idHuge.herd === 4 && idHuge.distinct === 4, JSON.stringify(idHuge));
+
+// IDs stay at or below the ceiling of 1e15. A file whose highest ID is the ceiling still gives new animals their own IDs,
+// and saving and loading that herd again changes nothing. 0, a negative ID and Number.MAX_SAFE_INTEGER are replaced on load
+const idCeiling = await ev(`(() => { const orig = saveAndRefreshFull, origSave = save; try {
+  applyData({ version: 7, herd: [__mk8(1e15, 1, 'Moa', 'M', 'Wild', 'BM01 Top'), __mk8(1e15 - 1, 2, 'Moa', 'F', 'Wild', 'BM02 Below')] }); migrateMemory();
+  saveAndRefreshFull = () => {};
+  editingId = null; resetFormUI();
+  for (let i = 0; i < 3; i++) { document.getElementById('f-species').value = 'Moa'; onSpeciesChange(); saveAnimal(); }
+  const added = animals.slice(2).map(a => a.id);
+  const addedOk = added.length === 3 && new Set(added).size === 3 && added.every(id => id > 0 && id <= 1e15) && animals[0].id === 1e15 && animals[1].id === 1e15 - 1;
+  deleteAnimal(added[1], true);
+  const afterDelete = animals.length, before = JSON.stringify(animals.map(a => a.id));
+  let saves = 0; save = () => { saves++; };
+  applyData(JSON.parse(JSON.stringify(getAllData()))); migrateMemory();
+  save = origSave;
+  const reloadSame = JSON.stringify(animals.map(a => a.id)) === before;
+  applyData({ version: 7, herd: [__mk8(Number.MAX_SAFE_INTEGER, 1, 'Moa', 'M', 'Wild', 'BM01 Safe'), __mk8(0, 2, 'Moa', 'F', 'Wild', 'BM02 Zero'), __mk8(-4, 3, 'Moa', 'M', 'Wild', 'BM03 Neg')] }); migrateMemory();
+  const byName = n => animals.find(a => a.name === n).id, replaced = animals.map(a => a.id);
+  return { added, addedOk, afterDelete, reloadSame, saves, replaced, safeReplaced: byName('BM01 Safe') <= 1e15, zeroPositive: byName('BM02 Zero') > 0,
+           replacedOk: replaced.every(id => id > 0 && id <= 1e15) && new Set(replaced).size === 3, error: '' };
+} catch (e) { return { error: e.message }; } finally { saveAndRefreshFull = orig; save = origSave; dismissPairAssign(); resetFormUI(); } })()`);
+check('internal IDs stay at or below 1e15: new IDs at the ceiling differ, a reload changes none, and 0, negative and too large IDs are replaced',
+  !idCeiling.error && idCeiling.addedOk && idCeiling.afterDelete === 4 && idCeiling.reloadSame && idCeiling.saves === 0
+  && idCeiling.safeReplaced && idCeiling.zeroPositive && idCeiling.replacedOk, JSON.stringify(idCeiling));
+
+// A file whose only problem is one text ID is saved once with the new ID, so the animal keeps that ID on the next load.
+// The second load reads what was saved, or the original file if nothing was
+const idText = await ev(`(() => { const origSave = save; try {
+  const file = JSON.stringify({ version: 7, herd: [__mk8(11, 1, 'Moa', 'M', 'Wild', 'BM01 Fine'), __mk8('seven', 2, 'Moa', 'F', 'Wild', 'BM02 Text')] });
+  let saves = 0, disk = file; save = () => { saves++; disk = JSON.stringify(getAllData()); };
+  applyData(JSON.parse(disk)); migrateMemory();
+  const first = animals.find(a => a.name === 'BM02 Text').id, firstSaves = saves;
+  saves = 0;
+  applyData(JSON.parse(disk)); migrateMemory();
+  return { first, firstSaves, again: animals.find(a => a.name === 'BM02 Text').id, secondSaves: saves, error: '' };
+} catch (e) { return { error: e.message }; } finally { save = origSave; } })()`);
+check('a text internal ID is replaced and saved once, and the next load keeps it without saving', !idText.error && typeof idText.first === 'number' && idText.first > 0
+  && idText.firstSaves === 1 && idText.again === idText.first && idText.secondSaves === 0, JSON.stringify(idText));
+
+await ev(`applyData(JSON.parse(window.__snap23)); migrateMemory(); saveAndRefreshFull(); true`);
+const rows300 = Array.from({ length: 300 }, (_, i) => `Moa,${i % 2 ? 'F' : 'M'},${['Wild', 'Alpha', 'Bold'][i % 3]}`);
+await holdClock();
+const csv300 = await importText('species,sex,bloodline\n' + rows300.join('\n')).catch(e => ({ error: e.message.split('\n')[0] }));
+await releaseClock();
+const idCsv = await ev(`({ unique: new Set(animals.map(a => a.id)).size === animals.length, herd: animals.length })`);
+check('a CSV import of 300 rows gives every animal its own internal ID', !csv300.error && csv300.after - csv300.before === 300 && idCsv.unique, JSON.stringify({ ...csv300, ...idCsv }));
+await ev(`(() => { applyData(JSON.parse(window.__snap23)); migrateMemory(); saveAndRefreshFull(); document.getElementById('f-species').value = 'Dune Raptor'; onSpeciesChange(); return true; })()`);
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));

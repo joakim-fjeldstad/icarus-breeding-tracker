@@ -1021,15 +1021,15 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
         Found a bug? Have a feature request or suggestion? Submit it directly on GitHub — no account required to view existing issues, but a free GitHub account is needed to post.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a href="https://github.com/rnksekmeth/icarus-breeding-tracker/issues/new?labels=bug&template=bug_report.md" target="_blank" rel="noopener noreferrer"
+        <a href="https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=bug&template=bug_report.md" target="_blank" rel="noopener noreferrer"
           style="background:var(--red2);color:var(--red);border:1px solid var(--red2);padding:7px 16px;border-radius:4px;font-size:12px;font-weight:bold;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
           🐛 Report a Bug
         </a>
-        <a href="https://github.com/rnksekmeth/icarus-breeding-tracker/issues/new?labels=enhancement&template=feature_request.md" target="_blank" rel="noopener noreferrer"
+        <a href="https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=enhancement&template=feature_request.md" target="_blank" rel="noopener noreferrer"
           style="background:var(--grn2);color:var(--grn);border:1px solid var(--grn2);padding:7px 16px;border-radius:4px;font-size:12px;font-weight:bold;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
           ✨ Feature Request
         </a>
-        <a href="https://github.com/rnksekmeth/icarus-breeding-tracker/issues" target="_blank" rel="noopener noreferrer"
+        <a href="https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues" target="_blank" rel="noopener noreferrer"
           style="background:var(--panel);color:var(--dim);border:1px solid var(--bdr);padding:7px 16px;border-radius:4px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
           📋 View All Issues
         </a>
@@ -1562,13 +1562,36 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.31b – Fixes for the optimiser, advice panel and shared files';
+const APP_VERSION  = 'v0.31c – Feedback links and unique animal IDs';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 7;
 
 // The version of the data that was last loaded from disk/storage.
 // Set by applyData() and loadFromLocalStorage(); used by migrateMemory().
 let loadedDataVersion = 0;
+
+// Internal animal IDs (a.id) are plain numbers that Delete, Edit, View and the status buttons find an animal by.
+// They used to be the time plus a random fraction, which repeats: a double holds only about 4096 fractions per millisecond,
+// so a loop adding a few hundred animals could mint the same ID twice. newAnimalId() counts up past the highest ID in use.
+// The ceiling is far above any timestamp (a millisecond clock reaches 1e15 in about 30,000 years) and below 2^53,
+// where every whole number is exact, so adding 1 always gives a different number
+const MAX_ANIMAL_ID = 1e15;
+let _lastAnimalId = 0;
+/** A usable internal ID: a finite number above 0 and at most MAX_ANIMAL_ID. An ID of 0 would read as "not editing" in saveAnimal() */
+function _isAnimalId(v) { return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= MAX_ANIMAL_ID; }
+/**
+ * A new internal ID, above every ID loaded or handed out before.
+ * Only a file whose highest ID sits at the ceiling can push the count past it. Then the lowest ID from the clock on that no
+ * animal uses is taken instead, and the counter stays where it is. No caller holds two IDs before it has added the first animal
+ */
+function newAnimalId() {
+  const next = Math.max(Date.now(), _lastAnimalId + 1);
+  if (next <= MAX_ANIMAL_ID) return (_lastAnimalId = next);
+  const used = new Set(animals.map(a => a.id));
+  let id = Date.now();
+  while (used.has(id)) id++;
+  return id;
+}
 
 /** Bundle all in-memory state into one object */
 /**
@@ -1617,8 +1640,12 @@ function applyData(d) {
   loadedDataVersion = typeof d.version === 'number' ? d.version : 1;
 
   // Animals: accept only array, sanitize all string fields
-  animals = Array.isArray(d.herd) ? d.herd.filter(a => a && typeof a === 'object' && !Array.isArray(a)).map(a => ({
-    id:       typeof a.id === 'number' ? a.id : Date.now() + Math.random(),
+  const herdIn = Array.isArray(d.herd) ? d.herd.filter(a => a && typeof a === 'object' && !Array.isArray(a)) : [];
+  // New IDs start above the highest usable ID in the file, so they never repeat a loaded one.
+  // A missing or unusable ID stays null here: migrateMemory() replaces it together with repeats, and saves the file
+  _lastAnimalId = herdIn.reduce((m, a) => (_isAnimalId(a.id) && a.id > m ? a.id : m), 0);
+  animals = herdIn.map(a => ({
+    id:       _isAnimalId(a.id) ? a.id : null,
     // 1..MAX_SP_ID only: 1e300 is an integer too and would give names like DR1e+300. 0 means "assign one" in migrateMemory()
     spId:     Number.isInteger(a.spId) && a.spId >= 1 && a.spId <= MAX_SP_ID ? a.spId : 0,
     sp:       _sanitizeStr(a.sp),
@@ -1639,7 +1666,7 @@ function applyData(d) {
     status:   _validStatus(a.status),
     notes:    _sanitizeStr(a.notes, 500),
     ...(typeof a.level === 'number' ? { level: Math.max(1, Math.min(50, a.level)) } : {}),
-  })) : [];
+  }));
 
   // Maps: only accept plain objects, not arrays or primitives
   const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
@@ -1801,9 +1828,16 @@ function migrateMemory() {
   // ── Always-run baseline: fill required fields on all animals ──────
   // Reserve every ID in use first, so an animal without one never gets a taken number
   _reserveSpIds();
+  // Internal IDs must be unique, or Delete removes every animal that shares one and Edit, View and status act on the first.
+  // Files from before v0.31c can hold repeats. The first animal keeps its ID; a repeat, or an ID that is missing or not usable
+  // (applyData() leaves those as null), gets a fresh one and the file is saved.
+  // This is safe because parent links and pair slots point at names, never at internal IDs
+  for (const a of animals) if (_isAnimalId(a.id) && a.id > _lastAnimalId) _lastAnimalId = a.id;
+  const seenIds = new Set();
   animals.forEach(a => {
     if (!a.stats)           a.stats  = {};
-    if (a.id === undefined) { a.id   = Date.now() + Math.random(); dirty = true; }
+    if (!_isAnimalId(a.id) || seenIds.has(a.id)) { a.id = newAnimalId(); dirty = true; }
+    seenIds.add(a.id);
     if (!a.spId)            { a.spId = getNextSpId(a.sp);        dirty = true; }
     const ph = _validPhenotype(a.sp, a.ph);
     if (ph !== a.ph)        { a.ph = ph;                           dirty = true; }
@@ -3991,7 +4025,7 @@ function saveAnimal() {
       } else animalSpId = getNextSpId(sp);
     } else animalSpId = existing?.spId ?? getNextSpId(sp);
   } else {
-    id = Date.now() + Math.random();
+    id = newAnimalId();
     animalSpId = getNextSpId(sp);
   }
 
@@ -5609,7 +5643,7 @@ function importCSV(e) {
       preNames.add(`${sp}|${name}`);
       const level = parseInt(get('level'));
       animals.push({
-        id: Date.now() + Math.random(),
+        id: newAnimalId(),
         spId, sp, sex: sexOk,
         bl, ph,
         gen: parseInt(get('gen')) || 1, p1: get('parent1'), p2: get('parent2'),
@@ -5938,7 +5972,7 @@ function applyMountImport(plan, choices) {
     const name = computeName(c.sp, c.sex, c.bl, c.ph, stats, spId);
     // The in-game name becomes the nickname, also when it carries a tracker ID that did not match: that is how a later import recognises the animal
     const a = {
-      id: Date.now() + Math.random(), spId, sp: c.sp, sex: c.sex, bl: c.bl, ph: c.ph, gen: 1,
+      id: newAnimalId(), spId, sp: c.sp, sex: c.sex, bl: c.bl, ph: c.ph, gen: 1,
       p1: '', p2: '', isBred: c.isBred, stats, total: getTotal(stats, c.sp), name,
       nickname: c.gameName === name ? '' : c.gameName, favorite: false, status: 'Station', notes: '',
       ...(c.level > 0 ? { level: c.level } : {}),

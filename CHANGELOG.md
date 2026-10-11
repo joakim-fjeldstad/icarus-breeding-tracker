@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.31c – Feedback links and unique animal IDs
+**2026-10-11**
+
+Implements #21 and #23.
+
+### Fixes
+- **The feedback links in Settings open this project's repository.** Report a Bug, Feature Request and View All Issues still pointed at the GitHub account the project had before. The two issue templates the links ask for now exist, so the form is filled in instead of blank (#21)
+- **Every animal gets its own internal ID.** This is the hidden ID the app finds an animal by, not the `DR12`-style ID shown in My Herd. Adding many animals at once (a CSV import, an import from the game) could give two animals the same internal ID, and Delete then removed both while Edit, View and the status buttons acted on the first. New IDs now count up past the highest one in use (#23)
+- **Repeated internal IDs in a herd file are repaired on load.** The first animal keeps its ID, the others get new ones and the file is saved. Parent links and pair slots use names, so nothing else changes. An ID that is text, zero, negative or above the limit the app counts within is replaced the same way (#23)
+
+---
+
 ## v0.31b – Fixes for the optimiser, advice panel and shared files
 **2026-10-10**
 
