@@ -206,6 +206,7 @@ th .sort-arrow{color:var(--dim);font-size:10px;margin-left:2px;opacity:.4;}
 .pa-suggestion .pa-sugg-good{color:var(--grn);}
 .pa-suggestion .pa-sugg-empty{color:var(--grn);}
 .pa-suggestion .pa-sugg-bad{color:var(--red);}
+.pa-suggestion .pa-goals{font-size:11px;color:var(--dim);margin-top:3px;}
 .pa-occupant{background:var(--card);border:1px solid #4a2e08;border-radius:5px;padding:10px 12px;margin:8px 0;}
 .pa-occupant .pa-occ-name{font-family:monospace;color:var(--yel);font-size:12px;margin:4px 0 8px;}
 .pa-radio-group{display:flex;flex-direction:column;gap:5px;}
@@ -216,6 +217,7 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 .pair-species-card{background:var(--panel);border:1px solid var(--bdr);border-radius:8px;padding:14px;}
 .pair-species-card h3{font-size:13px;margin-bottom:10px;color:var(--acc);text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:8px;}
 .pair-species-card.collapsed .pair-card-body{display:none;}
+.pair-serum{font-size:11px;color:var(--dim);padding:0 10px 6px;}
 .pair-species-card.collapsed{padding-bottom:10px;}
 .pairs-collapse-btn{background:none;border:1px solid var(--bdr);color:var(--dim);border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;margin-left:4px;line-height:1.4;}
 .pairs-collapse-btn:hover{color:var(--wht);border-color:#888;}
@@ -231,6 +233,9 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 .sug-animal{flex:1;color:var(--wht);}
 .sug-reason{color:#88aabb;font-size:10px;}
 .reserve-counter{display:flex;align-items:center;gap:8px;font-size:11px;color:#aaa;margin-top:6px;}
+.stat-goal-row{display:inline-flex;align-items:center;gap:4px;}
+.stat-goal-input{width:46px;background:var(--inp);color:var(--wht);border:1px solid var(--bdr);border-radius:3px;padding:1px 4px;font-size:11px;}
+.stat-goal-max{color:#555;}
 .reserve-counter input{width:52px;background:var(--inp);color:var(--wht);border:1px solid var(--bdr);border-radius:4px;padding:3px 6px;font-size:11px;}
 .pair-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;padding:6px 8px;background:var(--card);border-radius:5px;}
 .pair-del-btn{background:none;border:1px solid var(--red2);color:var(--red);border-radius:4px;padding:2px 7px;font-size:13px;cursor:pointer;margin-top:4px;flex-shrink:0;line-height:1.3;}
@@ -241,11 +246,6 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 .pair-animal select:focus{border-color:var(--acc);}
 .pair-cross{color:var(--dim);padding:0 4px;padding-top:8px;}
 .pair-stats{font-size:11px;color:var(--dim);white-space:nowrap;padding-top:7px;min-width:40px;text-align:right;}
-.pair-goal-badge{font-size:10px;padding:2px 7px;border-radius:10px;white-space:nowrap;font-weight:bold;display:inline-block;}
-.goal-match{background:var(--grn2);color:var(--grn);border:1px solid #1a6a2a;}
-.goal-nomatch{background:#2a1a08;color:#cc8833;border:1px solid #4a3010;}
-.goal-temp{background:var(--tmp2);color:var(--tmp);border:1px solid #5a3800;}
-.goal-empty{background:var(--panel);color:var(--dim);border:1px solid var(--bdr);}
 .upgrade-box{margin-top:10px;padding:8px 10px;background:var(--card);border-radius:5px;font-size:12px;}
 .upgrade-box .upg-row{display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid var(--bdr);}
 .upgrade-box .upg-row:last-child{border-bottom:none;}
@@ -272,12 +272,21 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 .goals-shortcode{font-size:11px;background:var(--card);border:1px solid var(--bdr);color:#aaa;padding:1px 7px;border-radius:4px;font-family:monospace;font-weight:bold;}
 .goals-section{margin-bottom:14px;}
 .goals-section:last-child{margin-bottom:0;}
+.goals-no-breed{font-size:11px;color:var(--dim);line-height:1.5;padding:6px 10px;border:1px dashed var(--bdr);border-radius:5px;}
 .goals-section-hdr{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--bdr);cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px;}
 .goals-section-hdr:hover{color:#aaa;}
 .gs-arrow{font-size:9px;opacity:.7;flex-shrink:0;}
 .gs-body.collapsed{display:none;}
 .chips-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
 .chips-row:empty{display:none;}
+/* "+ Species" chips under the Pairs and Goals grids, for species without animals (#26) */
+.add-chips-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:16px;padding-top:10px;border-top:1px solid var(--bdr);}
+.add-chips-row:empty{display:none;}
+.add-chips-row.add-chips-only{margin-top:0;padding-top:0;border-top:none;}
+.add-chips-lbl{font-size:11px;color:var(--dim);margin-right:4px;}
+.add-chips-only .add-chips-lbl{flex-basis:100%;margin-bottom:4px;font-size:12px;}
+.add-chip{background:var(--panel);border:1px dashed var(--bdr);color:var(--dim);border-radius:12px;padding:3px 10px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;}
+.add-chip:hover{color:var(--wht);border-color:var(--acc);}
 .species-chip{background:var(--panel);border:1px solid var(--bdr);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--acc);text-transform:uppercase;letter-spacing:.8px;cursor:default;flex-shrink:0;}
 .species-chip .pairs-collapse-btn{margin-left:4px;}
 .goal-pair-row{display:flex;gap:8px;align-items:center;margin-bottom:5px;}
@@ -415,6 +424,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
 .opt-modal h3{color:var(--acc);font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;}
 .opt-sp-section{margin-bottom:16px;border:1px solid var(--bdr);border-radius:6px;overflow:hidden;}
 .opt-sp-hdr{background:rgba(255,255,255,.04);padding:7px 12px;font-size:12px;font-weight:bold;color:var(--wht);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:6px;}
+.opt-stat-goal{margin-left:auto;font-size:10px;font-weight:normal;color:var(--dim);}
 .opt-sub-lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;padding:7px 12px 3px;}
 .opt-pair-row{display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;}
 .opt-pair-num{width:18px;color:var(--dim);flex-shrink:0;}
@@ -509,6 +519,11 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
   font-size:7px;font-weight:bold;letter-spacing:.05em;
   background:rgba(90,173,90,.18);color:var(--grn);
   border:1px solid rgba(90,173,90,.3);padding:1px 3px;pointer-events:none;
+}
+/* Negative-trait warning: bottom-left (square corner), red like the negative stars on the Goals card */
+.tile-warn{
+  position:absolute;bottom:3px;left:4px;
+  font-size:9px;font-weight:bold;line-height:1;color:#e74c3c;pointer-events:none;
 }
 /* Remove ✕ — bottom-right square corner, vivid red matching SAVAGE badge */
 .tile-rm{
@@ -847,16 +862,18 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
   </div>
   <div class="chips-row" id="pairs-chips-row"></div>
   <div class="pairs-grid" id="pairs-grid"></div>
+  <div class="add-chips-row" id="pairs-add-chips"></div>
 </div>
 
 <!-- ── GOALS ─────────────────────────────────────────────────── -->
 <div id="tab-goals" class="tab">
   <div class="section-hdr"><h2>Goals &amp; Priorities</h2></div>
   <p style="color:var(--dim);font-size:12px;margin-bottom:14px">
-    Set the <b style="color:var(--red)">breed-out stat</b> (default: VIG). Animals that can't be ridden or don't produce resources &#x2192; breed out INS instead. Then set pair goals and star-weight phenotypes/bloodlines.
+    Set the <b style="color:var(--red)">breed-out stat</b> (default: VIG). Animals that can't be ridden or don't produce resources &#x2192; breed out INS instead. Then set species goals and star-weight phenotypes/bloodlines.
   </p>
   <div class="chips-row" id="goals-chips-row"></div>
   <div class="goals-grid" id="goals-grid"></div>
+  <div class="add-chips-row" id="goals-add-chips"></div>
 </div>
 
 <!-- ── LINEAGE ────────────────────────────────────────────────── -->
@@ -1099,8 +1116,10 @@ const BLOODLINE_INFO = {
  * suffix for name is auto-derived: P0=base (empty), P1..PN = " P1 Name" or " P1"
  */
 // category:   'Mount' | 'Attack Pet' | 'Utility Pet'
-// breedable:  a fertility serum exists in game, so the species can produce offspring
+// breedable:  a fertility serum exists in game, so the species can produce offspring. The single source of truth for
+//             pair slots, goals and the optimiser: a species with breedable:false gets none of them (see isBreedable())
 // serum:      in-game name of that serum (breedable species only)
+// defaultPairs: pair slots a new herd starts with; 0 for a species that cannot be bred
 // obtain:     how the first animals are obtained:
 //             'juvenile' = tame a wild juvenile, 'snare' = Snare Trap with bait,
 //             'station'  = bought from the station, 'mission' = mission reward
@@ -1143,13 +1162,13 @@ const SPECIES_DATA = Object.assign(Object.create(null), {
     {label:'Buffalo P6', weight:5},  {label:'Buffalo P7', weight:5}]},
   'Arctic Moa':        { category:'Mount',      short:'AM', color:'#89b4c8', wiki:'https://icarus.wiki.gg/wiki/Arctic_Moa',        defaultPairs:2, breedable:true,  serum:'Moa Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Arctic Moa (base)', weight:2000}]},
-  'Draven':            { category:'Mount',      short:'DV', color:'#c9a040', wiki:'https://icarus.wiki.gg/wiki/Draven',            defaultPairs:2, breedable:false, obtain:'juvenile', phenotypes:[
+  'Draven':            { category:'Mount',      short:'DV', color:'#c9a040', wiki:'https://icarus.wiki.gg/wiki/Draven',            defaultPairs:0, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Draven (base)', weight:2000}]},
-  'Horse':             { category:'Mount',      short:'HR', color:'#c8904a', wiki:'https://icarus.wiki.gg/wiki/Horse',             defaultPairs:1, breedable:false, obtain:'station', phenotypes:[
+  'Horse':             { category:'Mount',      short:'HR', color:'#bf4a40', wiki:'https://icarus.wiki.gg/wiki/Horse',             defaultPairs:0, breedable:false, obtain:'station', phenotypes:[
     {label:'Brown (base)', weight:2000},
     {label:'White',        weight:500},
     {label:'Black',        weight:200}]},
-  'Terrenus':          { category:'Mount',      short:'TE', color:'#9a8060', wiki:'https://icarus.wiki.gg/wiki/Terrenus',          defaultPairs:2, breedable:false, obtain:'juvenile', phenotypes:[
+  'Terrenus':          { category:'Mount',      short:'TE', color:'#9a8060', wiki:'https://icarus.wiki.gg/wiki/Terrenus',          defaultPairs:0, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Terrenus (base)', weight:2000}]},
   'Tusker':            { category:'Mount',      short:'TK', color:'#8a9aaa', wiki:'https://icarus.wiki.gg/wiki/Tusker',            defaultPairs:2, breedable:true,  serum:'Tusker Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Tusker (base)', weight:2000},
@@ -1162,11 +1181,11 @@ const SPECIES_DATA = Object.assign(Object.create(null), {
     {label:'Ubis P3', weight:50}, {label:'Ubis P4', weight:50},
     {label:'Ubis P5', weight:50}, {label:'Ubis P6', weight:50},
     {label:'Ubis P7', weight:5}]},
-  'Woolly Mammoth':    { category:'Mount',      short:'WM', color:'#6a4a2a', wiki:'https://icarus.wiki.gg/wiki/Woolly_Mammoth',    defaultPairs:1, breedable:false, obtain:'juvenile', phenotypes:[
+  'Woolly Mammoth':    { category:'Mount',      short:'WM', color:'#6a4a2a', wiki:'https://icarus.wiki.gg/wiki/Woolly_Mammoth',    defaultPairs:0, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Woolly Mammoth (base)', weight:2000}]},
-  'Zebra':             { category:'Mount',      short:'ZB', color:'#a0a0a0', wiki:'https://icarus.wiki.gg/wiki/Zebra',             defaultPairs:1, breedable:false, obtain:'mission', phenotypes:[
+  'Zebra':             { category:'Mount',      short:'ZB', color:'#a0a0a0', wiki:'https://icarus.wiki.gg/wiki/Zebra',             defaultPairs:0, breedable:false, obtain:'mission', phenotypes:[
     {label:'Zebra (base)', weight:2000}]},
-  'Shaggy Zebra':      { category:'Mount',      short:'SZ', color:'#80ffdb', wiki:'https://icarus.wiki.gg/wiki/Shaggy_Zebra',      defaultPairs:1, breedable:false, obtain:'juvenile', phenotypes:[
+  'Shaggy Zebra':      { category:'Mount',      short:'SZ', color:'#80ffdb', wiki:'https://icarus.wiki.gg/wiki/Shaggy_Zebra',      defaultPairs:0, breedable:false, obtain:'juvenile', phenotypes:[
     {label:'Shaggy Zebra (base)', weight:2000}]},
 
   // ── ATTACK PETS ─────────────────────────────────────────────────
@@ -1176,9 +1195,9 @@ const SPECIES_DATA = Object.assign(Object.create(null), {
     {label:'Gribbler P3', weight:50}, {label:'Gribbler P4', weight:50},
     {label:'Gribbler P5', weight:50},
     {label:'Gribbler P6', weight:5},  {label:'Gribbler P7', weight:5}]},
-  'Hyena':             { category:'Attack Pet', short:'HY', color:'#c89050', wiki:'https://icarus.wiki.gg/wiki/Hyena',             defaultPairs:1, breedable:false, obtain:'snare', bait:'Hyena Bait', baitBiomes:['Desert','Volcanic'], phenotypes:[
+  'Hyena':             { category:'Attack Pet', short:'HY', color:'#d2722d', wiki:'https://icarus.wiki.gg/wiki/Hyena',             defaultPairs:0, breedable:false, obtain:'snare', bait:'Hyena Bait', baitBiomes:['Desert','Volcanic'], phenotypes:[
     {label:'Hyena (base)', weight:2000}]},
-  'Skulk':             { category:'Attack Pet', short:'SK', color:'#5a6a6a', wiki:'https://icarus.wiki.gg/wiki/Skulk',             defaultPairs:1, breedable:false, obtain:'snare', bait:'Skulk Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
+  'Skulk':             { category:'Attack Pet', short:'SK', color:'#5a6a6a', wiki:'https://icarus.wiki.gg/wiki/Skulk',             defaultPairs:0, breedable:false, obtain:'snare', bait:'Skulk Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
     {label:'Skulk (base)', weight:2000}]},
   'Snow Wolf':         { category:'Attack Pet', short:'SW', color:'#a0c0d8', wiki:'https://icarus.wiki.gg/wiki/Snow_Wolf',         defaultPairs:1, breedable:true,  serum:'Wolf Fertility Serum', obtain:'snare', bait:'Wolf Bait', baitBiomes:['Arctic'], phenotypes:[
     {label:'Snow Wolf (base)', weight:2000}]},
@@ -1194,13 +1213,13 @@ const SPECIES_DATA = Object.assign(Object.create(null), {
     {label:'Wolf P3', weight:50}, {label:'Wolf P4', weight:50},
     {label:'Wolf P5', weight:50},
     {label:'Wolf P6', weight:5},  {label:'Wolf P7', weight:5}]},
-  'Storca':            { category:'Attack Pet', short:'SC', color:'#5a8a7a', wiki:'https://icarus.wiki.gg/wiki/Storca',            defaultPairs:1, breedable:false, obtain:'snare', bait:'Storca Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
+  'Storca':            { category:'Attack Pet', short:'SC', color:'#5a8a7a', wiki:'https://icarus.wiki.gg/wiki/Storca',            defaultPairs:0, breedable:false, obtain:'snare', bait:'Storca Bait', baitBiomes:['Tundra','Arctic'], phenotypes:[
     {label:'Storca (base)', weight:2000}]},
-  'Kiwi':              { category:'Attack Pet', short:'KW', color:'#9acd32', wiki:'https://icarus.wiki.gg/wiki/Kiwi',              defaultPairs:1, breedable:false, obtain:'snare', bait:'Kiwi Bait', baitBiomes:['Forest','Grassland','Arctic'], baitNote:'at night', phenotypes:[
+  'Kiwi':              { category:'Attack Pet', short:'KW', color:'#9acd32', wiki:'https://icarus.wiki.gg/wiki/Kiwi',              defaultPairs:0, breedable:false, obtain:'snare', bait:'Kiwi Bait', baitBiomes:['Forest','Grassland','Arctic'], baitNote:'at night', phenotypes:[
     {label:'Kiwi (base)', weight:2000}]},
 
   // ── UTILITY PETS (Livestock) ─────────────────────────────────────
-  'Cattle':            { category:'Utility Pet', short:'CT', color:'#c08840', wiki:'https://icarus.wiki.gg/wiki/Pets',             defaultPairs:2, breedable:true,  serum:'Bull Fertility Serum', obtain:'station', phenotypes:[
+  'Cattle':            { category:'Utility Pet', short:'CT', color:'#75bd87', wiki:'https://icarus.wiki.gg/wiki/Pets',             defaultPairs:2, breedable:true,  serum:'Bull Fertility Serum', obtain:'station', phenotypes:[
     {label:'Cattle (base)', weight:2000}]},
   'Chicken':           { category:'Utility Pet', short:'CK', color:'#e8c040', wiki:'https://icarus.wiki.gg/wiki/Pets',            defaultPairs:2, breedable:true,  serum:'Rooster Fertility Serum', obtain:'station', phenotypes:[
     {label:'Chicken (base)', weight:2000}]},
@@ -1244,6 +1263,9 @@ let _optimizeTotalItems = 0; // total pair+suggestion rows in current modal
 let _optimizeAppliedItems = 0; // how many have been individually applied
 const collapsedGoalCards    = new Set(); // card-level collapse per species in Goals
 const collapsedGoalSections = new Set(); // section-level collapse keys: "${sp}::${sectionId}"
+// Species without animals that the player opened from a chip on Pairs or Goals. In memory only, so after a reload such a
+// species is a chip again until it has an animal (#26)
+const openedSpecies         = new Set();
 
 // ── DOM HELPERS ──────────────────────────────────────────────────
 const $id  = id  => document.getElementById(id);
@@ -1273,6 +1295,8 @@ function saveAndRefresh() {
  */
 function saveAndRefreshFull() {
   save(); renderHerd(); renderPairs(); updateParentDatalist(); updateLineageSelector();
+  // Goals renders when its tab opens; while it is open, an added or deleted animal shows on it at once
+  if ($id('tab-goals')?.classList.contains('active')) renderGoals();
 }
 
 /**
@@ -1562,7 +1586,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.31e – Pair slots follow animal changes';
+const APP_VERSION  = 'v0.32 – Goals, scoring and species visibility';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 7;
 
@@ -1687,6 +1711,7 @@ function applyData(d) {
   (Array.isArray(d.collapsedGoalCards) ? d.collapsedGoalCards : []).forEach(s => typeof s === 'string' && collapsedGoalCards.add(s));
   collapsedGoalSections.clear();
   (Array.isArray(d.collapsedGoalSecs)  ? d.collapsedGoalSecs  : []).forEach(s => typeof s === 'string' && collapsedGoalSections.add(s));
+  openedSpecies.clear();   // cards opened from a chip belong to the herd that was showing
 
   logEntries = Array.isArray(d.logEntries) ? d.logEntries.filter(e => e && typeof e === 'object').map(e => ({
     ts:   typeof e.ts === 'number' ? e.ts : Date.now(),
@@ -1777,12 +1802,11 @@ function migrateMemory() {
             if (!exists) g.goals.push({ bl, ph });
           }
         });
-        // Clear old per-pair goal data (keep array length for slot tracking)
-        g.pairs = g.pairs.map(() => ({ bl: '', ph: '' }));
+        // The per-pair goals now live in the species goals; initGoals() drops the old list
       }
-      if (g.statGoal === undefined) g.statGoal = 60;
       if (!g.blPriority) g.blPriority = {};
-      if (!g.blPriority.Unstable) g.blPriority.Unstable = 2;
+      // Browser storage always loads as version 1, so this runs on every such load: only an absent star gets the default
+      if (!Object.hasOwn(g.blPriority, 'Unstable')) g.blPriority.Unstable = 2;
     }
     dirty = true;
   }
@@ -1847,14 +1871,43 @@ function migrateMemory() {
     for (const k of Object.keys(m)) if (!Object.hasOwn(SPECIES_DATA, k)) { delete m[k]; dirty = true; }
   }
 
-  // First: the pair-slot rule and initGoals() size the slot lists from these counts. A 0 from an older file becomes 1 and is saved
+  // First: the pair-slot rule sizes the slot lists from these counts. A 0 from an older file becomes 1 and is saved
   if (initPairCounts()) dirty = true;
   if (applyPairSlotRuleOnLoad()) dirty = true;
+  // Goals from the file: repeats and goals naming an unknown bloodline or phenotype go now, on load only, so a repeat made in
+  // the Goals tab stays until the next load. Then the defaults and bounds; a stat goal moved into range is saved once
+  if (_cleanLoadedGoals()) dirty = true;
+  if (initGoals()) dirty = true;
 
   // If anything changed, persist immediately so the file is up to date
   if (dirty) save();
+}
 
-  initGoals();
+/**
+ * Goals as a loaded file gives them: a goal keeps only a known bloodline and a phenotype of the species, and a goal that named
+ * anything else is dropped, not turned into "any", which would change what it asks for. A repeated goal goes; blank rows stay.
+ * At most MAX_SPECIES_GOALS per species, so a shared file cannot make every render work through thousands of goals.
+ * Runs on load only (migrateMemory). Returns true if a list changed, so the file is saved
+ */
+function _cleanLoadedGoals() {
+  let changed = false;
+  for (const [sp, g] of Object.entries(goalsMap)) {
+    if (!Object.hasOwn(SPECIES_DATA, sp) || !g || typeof g !== 'object' || !Array.isArray(g.goals)) continue;   // initGoals() handles these
+    const kept = [], seen = new Set();
+    for (const gl of g.goals) {
+      if (kept.length >= MAX_SPECIES_GOALS) break;
+      if (!gl || typeof gl !== 'object') continue;
+      const bl = _validBloodline(gl.bl), ph = _validPhenotype(sp, gl.ph);
+      if ((gl.bl && !bl) || (gl.ph && !ph)) continue;
+      const key = `${bl}|${ph}`;
+      if ((bl || ph) && seen.has(key)) continue;
+      seen.add(key);
+      kept.push({ bl, ph });
+    }
+    if (kept.length !== g.goals.length || kept.some((k, i) => g.goals[i]?.bl !== k.bl || g.goals[i]?.ph !== k.ph)) changed = true;
+    g.goals = kept;
+  }
+  return changed;
 }
 
 /** Load from localStorage (fallback / legacy) */
@@ -2096,6 +2149,61 @@ const PAIR_BLOCKED_STATUSES = ['Dead', 'Station', 'Discard'];
 /** True if the animal can sit in a pair slot */
 function canPair(a) { return !!a && !PAIR_BLOCKED_STATUSES.includes(a.status); }
 
+/**
+ * True if the game has a fertility serum for the species, so it can be bred. A missing flag counts as breedable, as in the
+ * New Animal form. Species that cannot be bred get no pair slots, goal weights or optimiser suggestions (#26); pair data
+ * an older file holds for them is kept as it is, just not shown or used
+ */
+function isBreedable(sp) { return Object.hasOwn(SPECIES_DATA, sp) && SPECIES_DATA[sp].breedable !== false; }
+
+// ── SPECIES CHIPS (Pairs and Goals) ──────────────────────────────
+/** True if the species gets a card on Pairs and Goals: it has an animal in the herd (any status), or the player opened it from a chip */
+function speciesCardShown(sp) { return openedSpecies.has(sp) || animals.some(a => a.sp === sp); }
+
+/**
+ * Fill the chip row under the Pairs or Goals grid with one "+ Species" chip per species that has no card, in card order.
+ * With an empty herd the label says how cards appear; on Pairs, a herd of only species that cannot be bred is told so while
+ * no card shows (noCards). noCards also drops the divider above the row, as the grid above it is empty.
+ * Built with DOM calls and textContent, so species names and colours never pass through innerHTML
+ */
+function _renderSpeciesChips(container, species, noCards, tab) {
+  if (!container) return;
+  container.textContent = '';
+  container.classList.toggle('add-chips-only', noCards);
+  const herdEmpty = animals.length === 0;
+  const unbred = tab === 'pairs' && noCards && !herdEmpty && !animals.some(a => isBreedable(a.sp))
+    ? [...new Set(animals.map(a => a.sp))].filter(sp => Object.hasOwn(SPECIES_DATA, sp)) : null;
+  if (!species.length && !unbred) return;
+  const lbl = document.createElement('span');
+  lbl.className = 'add-chips-lbl';
+  lbl.textContent = herdEmpty ? 'No animals yet. Add one in ➕ New Animal and its card appears here, or open a species to plan ahead:'
+    : unbred ? `${unbred.length ? unbred.join(', ') + ' cannot be bred' : 'No species in your herd can be bred'}, so there is nothing to pair. Open a species to plan ahead:`
+    : 'No animals yet:';
+  container.append(lbl);
+  for (const sp of species) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'add-chip';
+    chip.dataset.sp = sp;
+    chip.title = `Show the ${sp} card without adding an animal`;
+    const dot = document.createElement('span');
+    dot.className = 'species-dot';
+    dot.style.background = SPECIES_DATA[sp].color;
+    chip.append(dot, `+ ${sp}`);
+    chip.addEventListener('click', () => openSpeciesCard(sp, tab));
+    container.append(chip);
+  }
+}
+
+/** Show the card of a species that has no animals yet, expanded, on Pairs ('pairs') or Goals ('goals'). Creates no animal */
+function openSpeciesCard(sp, tab) {
+  if (!Object.hasOwn(SPECIES_DATA, sp)) return;
+  openedSpecies.add(sp);
+  const collapsed = tab === 'goals' ? collapsedGoalCards : collapsedPairSpecies;
+  if (collapsed.delete(sp)) save();
+  if (tab === 'goals') renderGoals(); else renderPairs();
+}
+
 /** True if the animal fits that slot: the slot's species or a cross-breed partner of it, and the slot's sex ('m' or 'f') */
 function slotFits(a, sp, sex) {
   return !!a && Object.hasOwn(SPECIES_DATA, sp) && (a.sp === sp || (CROSS_BREEDS[sp] || []).includes(a.sp))
@@ -2220,20 +2328,30 @@ function placeInSlot(sp, idx, sex, name) {
 // ── PAIR COUNTS ──────────────────────────────────────────────────
 /**
  * Number of pair slots of a species: the stored count, from 1 to 99. Every reader goes through this, so a 0 from an
- * older file (deletePairRow could reach it) reads as 1 in Pairs, Goals, the optimiser and the placement panels alike
+ * older file (deletePairRow could reach it) reads as 1 in Pairs, Goals, the optimiser and the placement panels alike.
+ * A species that cannot be bred has 0, whatever count an older file stored for it
  */
 function getPairCount(sp) {
-  return _clampInt(pairCounts[sp], 1, 99, Object.hasOwn(SPECIES_DATA, sp) ? SPECIES_DATA[sp].defaultPairs : 1);
+  if (!isBreedable(sp)) return 0;
+  return _clampInt(pairCounts[sp], 1, 99, SPECIES_DATA[sp].defaultPairs);
 }
 
-/** Clamp every stored count like getPairCount(). Returns true if a whole number was moved into 1..99, so the loader saves it */
+/** Clamp every stored count like getPairCount(). Returns true if a whole number was moved into its range, so the loader saves it */
 function initPairCounts() {
   let clamped = false;
   for (const [sp, cfg] of Object.entries(SPECIES_DATA)) {
     // A file can carry anything here, and the slot lists are grown to this number: a whole number is clamped to 1..99,
-    // anything else becomes the species default. A longer slot list is cut on load (applyPairSlotRuleOnLoad)
+    // anything else becomes the species default. A longer slot list is cut on load (applyPairSlotRuleOnLoad).
+    // A species that cannot be bred keeps the count an older file gave it (0..99); nothing reads it
     const v = pairCounts[sp];
-    pairCounts[sp] = _clampInt(v, 1, 99, cfg.defaultPairs);
+    if (isBreedable(sp)) pairCounts[sp] = _clampInt(v, 1, 99, cfg.defaultPairs);
+    else {
+      // At least as many as the slot list an older file saved, so neither this version nor an older one cuts it; with no
+      // count and no list the count stays unset
+      const listLen = Array.isArray(pairsMap[sp]) ? Math.min(99, pairsMap[sp].length) : 0;
+      const kept = Math.max(_clampInt(v, 0, 99, 0), listLen);
+      if (kept || Number.isInteger(v)) pairCounts[sp] = kept; else delete pairCounts[sp];
+    }
     if (Number.isInteger(v) && v !== pairCounts[sp]) clamped = true;
   }
   return clamped;
@@ -2252,7 +2370,8 @@ function applyPairSlotRuleOnLoad() {
   const lost = new Map(), seen = new Set();   // lost: name -> the animal that lost its slot; seen: animals already in a slot
   for (const sp of Object.keys(pairsMap)) {
     if (!Array.isArray(pairsMap[sp])) continue;
-    const n = getPairCount(sp);
+    // A species that cannot be bred has no pair slots, but the list an older file saved for it is kept, not cut (#26)
+    const n = isBreedable(sp) ? getPairCount(sp) : pairsMap[sp].length;
     if (pairsMap[sp].length > n) {
       pairsMap[sp].slice(n).forEach(p => ['m', 'f'].forEach(sex => { const x = p?.[sex]; if (x) lost.set(x, slotAnimal(x, sp, sex)); }));
       pairsMap[sp] = pairsMap[sp].slice(0, n);
@@ -2321,14 +2440,14 @@ function addPairFromTopBar() {
 }
 
 function addPairSlot(sp) {
+  if (!isBreedable(sp)) { showToast(`${sp} cannot be bred, so it has no pair slots`); return; }
   // The loader caps pair counts at 99, so the UI stops there too
   if (getPairCount(sp) >= 99) { showToast(`${sp} already has the maximum of 99 pairs`); return; }
   pairCounts[sp] = getPairCount(sp) + 1;
   if (!pairsMap[sp]) pairsMap[sp] = [];
   while (pairsMap[sp].length < pairCounts[sp]) pairsMap[sp].push({ m:'', f:'' });
-  if (!goalsMap[sp]) initGoals();
-  while ((goalsMap[sp].pairs || []).length < pairCounts[sp]) goalsMap[sp].pairs.push({ bl:'', ph:'' });
-  save(); saveGoals(); renderPairs();
+  openedSpecies.add(sp);   // a slot added from the top bar for a species without animals shows its card
+  save(); renderPairs();
   showToast(`Added pair ${pairCounts[sp]} for ${sp}`);
 }
 
@@ -2339,9 +2458,8 @@ function removePairSlot(sp) {
   // The animals in the removed slot leave it: Breed and Temp Breed become Reserve
   const removed = (pairsMap[sp] || []).slice(pairCounts[sp]).flatMap(p => [p?.m, p?.f]);
   if (pairsMap[sp]) pairsMap[sp] = pairsMap[sp].slice(0, pairCounts[sp]);
-  if (goalsMap[sp]?.pairs) goalsMap[sp].pairs = goalsMap[sp].pairs.slice(0, pairCounts[sp]);
   const reserved = releaseFromSlots(removed);
-  save(); saveGoals(); renderHerd(); renderPairs();
+  save(); renderHerd(); renderPairs();
   showToast(`Removed pair ${n} from ${sp}${reserved ? ', Breed or Temp Breed set to 🔶 Reserve' : ''}`);
 }
 
@@ -2353,10 +2471,9 @@ function deletePairRow(sp, idx) {
   pairsMap[sp].splice(idx, 1);
   pairCounts[sp] = Math.max(1, getPairCount(sp) - 1);
   if (!pairsMap[sp].length) pairsMap[sp].push({ m: '', f: '' });
-  if (goalsMap[sp]?.pairs) goalsMap[sp].pairs.splice(idx, 1);
   // The two animals leave their slot: Breed and Temp Breed become Reserve, any other status is kept
   const reserved = releaseFromSlots([pair.m, pair.f]);
-  save(); saveGoals(); renderHerd(); renderPairs();
+  save(); renderHerd(); renderPairs();
   showToast(`Pair ${idx + 1} deleted${reserved ? ', Breed or Temp Breed set to 🔶 Reserve' : ''}`);
 }
 
@@ -2377,14 +2494,12 @@ function scoreForOptimize(sp, a) {
   const g   = goalsMap[sp] || {};
   const blP = g.blPriority  || {};
   const phW = g.phenoWeights || {};
-  const spGoals = g.goals || [];
   let score = getTotal(a.stats, sp) * 10;
   const blScore = blP[a.bl] ?? 0;
   const phScore = phW[a.ph] ?? 0;
   score += blScore * 60;
   score += phScore * 60;
-  const matchesGoal = spGoals.some(gl => (!gl.bl || gl.bl === a.bl) && (!gl.ph || gl.ph === a.ph));
-  if (matchesGoal) score += 150;
+  if (matchesSpeciesGoal(sp, a)) score += 150;
   // Unstable: bonus for mutation chance if not negatively starred
   if (a.bl === 'Unstable' && (blP['Unstable'] ?? 0) >= 0) score += 40;
   // Negative trait: heavy penalty so they're last resort
@@ -2397,13 +2512,16 @@ function scoreForOptimize(sp, a) {
  * globallyAssigned: Set of animal names already claimed by other species' pairs.
  */
 function buildOptimizePlanForSpecies(sp, globallyAssigned) {
+  // A species that cannot be bred has no pairs to propose and no breeding reason to keep or cull an animal (#26)
+  if (!isBreedable(sp)) return { sp, proposedPairs: [], suggestions: [] };
   initGoals();
   const g       = goalsMap[sp] || {};
   const n       = getPairCount(sp);
   const blP     = g.blPriority  || {};
   const phW     = g.phenoWeights || {};
-  const spGoals = g.goals || [];
-  const statGoal = getMaxTotal(sp);
+  // Only goals that name a bloodline or a phenotype; a blank row on the Goals card is no goal
+  const spGoals = speciesGoalTargets(sp);
+  const statGoal = getStatGoal(sp);   // the stat goal from the Goals card; the species maximum unless the player set one
 
   const crossPartners = CROSS_BREEDS[sp] || [];
   // The same animals the Pairs pool offers: an animal Pairs shows as unavailable is never proposed
@@ -2454,7 +2572,7 @@ function buildOptimizePlanForSpecies(sp, globallyAssigned) {
       if (altF) f = altF;
     }
     const label = (goal.bl && goal.ph) ? `${goal.bl} × ${goal.ph}`
-                : goal.bl ? goal.bl : goal.ph ? goal.ph : `Goal ${i+1}`;
+                : goal.bl ? goal.bl : goal.ph;
     proposedPairs.push({ m: m?.name || '', f: f?.name || '', goalLabel: label });
     if (m) usedIds.add(m.id);
     if (f) usedIds.add(f.id);
@@ -2540,7 +2658,7 @@ function buildOptimizePlanForSpecies(sp, globallyAssigned) {
       const tot     = getTotal(a.stats, sp);
       const hasPositive = blScore > 0 || phScore > 0 || a.bl === 'Unstable';
       const hasNeg      = blScore < 0 || phScore < 0;
-      const matchesGoal = spGoals.some(gl => (!gl.bl || gl.bl === a.bl) && (!gl.ph || gl.ph === a.ph));
+      const matchesGoal = matchesSpeciesGoal(sp, a);
 
       if (a.favorite) {
         const reason = hasPositive || matchesGoal
@@ -2560,21 +2678,15 @@ function buildOptimizePlanForSpecies(sp, globallyAssigned) {
                  + (fA && (isBl ? fA.bl : fA.ph) === posTrait ? 1 : 0);
       }, 0);
 
-      // Feature 4: check if outclassed by paired same-sex/species animals
-      const _pairedSameSex = proposedPairs.flatMap(pp => {
-        const nm = a.sex === 'M' ? pp.m : pp.f;
-        const pa = nm ? allUsable.find(x => x.name === nm) : null;
-        return (pa && pa.sp === sp) ? [pa] : [];
-      });
-      const _isOutclassed = _pairedSameSex.some(b => scoreForOptimize(sp, b) > scoreForOptimize(sp, a));
-      const _maxTot = getMaxTotal(sp);
-      const _isNearMax = tot >= _maxTot * 0.9;
-
+      // Every cull below needs a total under the stat goal, so an animal that meets the goal is never suggested for culling
       if (matchesGoal && tot >= statGoal) {
         suggestions.push({ animal: a, action: 'reserve', reason: `Matches a species goal — reserve for future breeding` });
-      } else if (hasPositive && tot < statGoal) {
+      } else if ((hasPositive || matchesGoal) && tot < statGoal) {
         const trait = posTrait;
-        if (traitInPairs >= 2) {
+        if (matchesGoal) {
+          // A goal carrier is kept for breeding, also when its total is below the stat goal
+          suggestions.push({ animal: a, action: 'reserve', reason: `Matches a species goal but below stat goal (${tot}/${statGoal})` });
+        } else if (traitInPairs >= 2) {
           suggestions.push({ animal: a, action: 'cull', reason: `Desired trait (${trait}) already in ${traitInPairs} pair slots and below stat goal (${tot}/${statGoal})` });
         } else if (traitInPairs >= 1 && tot < statGoal * 0.7) {
           suggestions.push({ animal: a, action: 'cull', reason: `Desired trait (${trait}) covered in a pair slot and well below stat goal (${tot}/${statGoal})` });
@@ -2586,14 +2698,12 @@ function buildOptimizePlanForSpecies(sp, globallyAssigned) {
         suggestions.push({ animal: a, action: 'cull', reason: `Negative trait (${trait}) and below stat goal (${tot}/${statGoal})` });
       } else if (!hasPositive && tot < statGoal) {
         suggestions.push({ animal: a, action: 'cull', reason: `No valued traits, below stat goal (${tot}/${statGoal})` });
-      } else if (!_isNearMax && _isOutclassed && !hasPositive) {
-        suggestions.push({ animal: a, action: 'cull', reason: `Outclassed by paired ${a.sex === 'M' ? '♂' : '♀'} of same species (${tot}/${statGoal} goal)` });
       } else {
-        suggestions.push({ animal: a, action: 'store', reason: `Good stats (${tot}) but all pair slots filled` });
+        suggestions.push({ animal: a, action: 'store', reason: `Meets stat goal (${tot}/${statGoal}); no free pair slot` });
       }
     });
 
-  return { sp, proposedPairs, suggestions };
+  return { sp, proposedPairs, suggestions, statGoal };
 }
 
 /** Open the optimize modal for one species (sp) or all (sp=null) */
@@ -2604,11 +2714,12 @@ function buildOptimizePlanForSpecies(sp, globallyAssigned) {
  */
 function showOptimizeModal(sp) {
   const globallyAssigned = new Set();
-  const speciesList = sp
-    ? [sp]
-    : getSpeciesOrder().filter(s => animals.some(a => a.sp === s));
+  const speciesList = (sp ? [sp] : getSpeciesOrder().filter(s => animals.some(a => a.sp === s))).filter(isBreedable);
 
-  if (!speciesList.length) { showToast('No animals to optimize'); return; }
+  if (!speciesList.length) {
+    showToast(!sp && animals.length ? 'Nothing to optimize: no species in your herd can be bred' : 'No animals to optimize');
+    return;
+  }
 
   _optimizePlan = speciesList.map(s => buildOptimizePlanForSpecies(s, globallyAssigned));
   _optimizeTotalItems = _optimizePlan.reduce((sum, p) => sum + p.proposedPairs.length + p.suggestions.length, 0);
@@ -2659,7 +2770,7 @@ function showOptimizeModal(sp) {
     const sugSection = `<div class="opt-sub-lbl">Suggested Status Changes</div>${actionRows}`;
 
     return `<div class="opt-sp-section">
-      <div class="opt-sp-hdr">${dot}${plan.sp}</div>
+      <div class="opt-sp-hdr">${dot}${$h(plan.sp)}<span class="opt-stat-goal">Stat goal ${Number(plan.statGoal)}/${getMaxTotal(plan.sp)}</span></div>
       <div class="opt-sub-lbl">Proposed Pairs</div>
       ${pairRows}
       ${sugSection}
@@ -2793,29 +2904,37 @@ function applyOptimizePlan(applyStatuses) {
   closeOptimizeModal();
 }
 
+/** Most species goals a species can have; the Goals card refuses more and a file is cut to this many */
+const MAX_SPECIES_GOALS = 32;
+
+/** Fill defaults and bounds for every species. Returns true if a stat goal was moved into range, so a loaded file is saved */
 function initGoals() {
   const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+  let changed = false;
   for (const [sp, cfg] of Object.entries(SPECIES_DATA)) {
     // A shared file can carry anything here; a bad entry becomes defaults rather than blanking the tab
     if (!isObj(goalsMap[sp])) goalsMap[sp] = {};
     const g = goalsMap[sp];
-    if (!Array.isArray(g.pairs))  g.pairs        = [];   // kept for pair-slot count tracking
-    if (g.pairs.length > 99)      g.pairs        = g.pairs.slice(0, 99);   // same cap as the pair count
+    // Per-pair goals (before v5) were moved into the species goals by migrateMemory(); the emptied list is not used
+    delete g.pairs;
     if (!Array.isArray(g.goals))  g.goals        = [];   // species-level breeding goals
-    g.goals = g.goals.filter(gl => gl && typeof gl === 'object').map(gl => ({ bl: _validBloodline(gl.bl), ph: _validPhenotype(sp, gl.ph) }));
+    // Bounds checked on every render: goal objects with known values, at most MAX_SPECIES_GOALS. Repeats and goals naming
+    // unknown values were dropped on load (_cleanLoadedGoals); a repeat made in the Goals tab stays until the next load
+    g.goals = g.goals.slice(0, MAX_SPECIES_GOALS).filter(gl => gl && typeof gl === 'object').map(gl => ({ bl: _validBloodline(gl.bl), ph: _validPhenotype(sp, gl.ph) }));
     if (!isObj(g.phenoWeights))   g.phenoWeights = {};
     if (!isObj(g.blPriority))     g.blPriority   = {};
     if (!STATS.includes(g.breedOutStat)) g.breedOutStat = 'VIG';
     // Both are written into the page as numbers: a whole number is clamped to 0..999, anything else becomes the default
     g.reserveTarget = _clampInt(g.reserveTarget, 0, 999, 0);
-    g.statGoal      = _clampInt(g.statGoal,      0, 999, 60);
+    const statGoalIn = g.statGoal;
+    g.statGoal      = _clampInt(statGoalIn,      0, getMaxTotal(sp), getMaxTotal(sp));   // a total above the maximum cannot be reached
+    if (Number.isInteger(statGoalIn) && statGoalIn !== g.statGoal) changed = true;
     // Star weights are whole numbers in -3..3; a larger number from a file would reach '★'.repeat(), anything else is 0
     for (const m of [g.phenoWeights, g.blPriority]) for (const k of Object.keys(m)) m[k] = _clampInt(m[k], -3, 3, 0);
-    // Default: Unstable is always a breeding priority (value 2 = ★★) unless user overrides
-    if (!g.blPriority.Unstable) g.blPriority.Unstable = 2;
-    const n = getPairCount(sp);
-    while (g.pairs.length < n) g.pairs.push({ bl:'', ph:'' });
+    // Default: Unstable is a breeding priority (value 2 = ★★) until the player sets it; a 0 the player chose stays 0
+    if (!Object.hasOwn(g.blPriority, 'Unstable')) g.blPriority.Unstable = 2;
   }
+  return changed;
 }
 
 // ── BREEDING SUGGESTIONS ENGINE ──────────────────────────────────
@@ -2871,14 +2990,13 @@ function buildBreedingSuggestions(sp) {
   const pairs  = (pairsMap[sp] || []).slice(0, n);
   const blP    = g.blPriority  || {};
   const phW    = g.phenoWeights || {};
-  const spGoals = g.goals || [];
-  const statGoal = getMaxTotal(sp);
+  // Goals that name a bloodline or a phenotype (a blank row is no goal), with their row number on the Goals card
+  const goalRows = (g.goals || []).map((goal, idx) => ({ goal, idx })).filter(({ goal }) => goal && (goal.bl || goal.ph));
+  const statGoal = getStatGoal(sp);
 
   const active = animals.filter(a =>
     a.sp === sp && a.status !== 'Dead' && a.status !== 'Discard');
-  const assigned = new Set(
-    Object.values(pairsMap).flatMap(ps => (ps || []).flatMap(p => [p.m, p.f])).filter(Boolean)
-  );
+  const assigned = pairedNames();
   const unassigned = active.filter(a => !assigned.has(a.name));
   const bestStatTotal = Math.max(0, ...active.map(a => getTotal(a.stats, sp)));
 
@@ -2926,7 +3044,7 @@ function buildBreedingSuggestions(sp) {
     .slice(0, 4);
 
   // Per-species-goal recommendations: for each goal, find best M+F that could produce it
-  const goalRecs = spGoals.map((goal, goalIdx) => {
+  const goalRecs = goalRows.map(({ goal, idx: goalIdx }) => {
     const allM = active.filter(a => a.sex === 'M').sort((a,b) => scoreAnimalForGoals(sp,b) - scoreAnimalForGoals(sp,a));
     const allF = active.filter(a => a.sex === 'F').sort((a,b) => scoreAnimalForGoals(sp,b) - scoreAnimalForGoals(sp,a));
 
@@ -2972,7 +3090,7 @@ function buildBreedingSuggestions(sp) {
   const reserveTarget  = g.reserveTarget ?? 0;
 
   // ── Goal achieved: bred offspring already matching a species goal ──
-  const achievedGoals = spGoals.map((goal, gi) => {
+  const achievedGoals = goalRows.map(({ goal, idx: gi }) => {
     const match = animals.find(a =>
       a.sp === sp && a.isBred && !['Dead','Discard'].includes(a.status) &&
       (!goal.bl || a.bl === goal.bl) && (!goal.ph || a.ph === goal.ph)
@@ -3039,6 +3157,8 @@ function renderSuggestions(sp) {
       <button onclick="updateReserveTarget('${$esc(sp)}',${Number(s.reserveTarget) + 1})"
         style="background:none;border:1px solid var(--bdr);color:var(--wht);border-radius:3px;width:18px;height:18px;cursor:pointer;line-height:1;font-size:13px;padding:0">+</button>
     </span></span>
+    <label class="stat-goal-row" title="The optimiser never suggests culling an animal with this total or more. Default: the maximum, a perfect total">🎯 Stat goal:
+      <input type="number" class="stat-goal-input" data-sp="${$h(sp)}" min="0" max="${getMaxTotal(sp)}" step="1" value="${Number(s.statGoal)}"><span class="stat-goal-max">/ ${getMaxTotal(sp)}</span></label>
   </div>`;
 
   // ── Species Goal Pair Recommendations ──────────────────────────
@@ -3172,9 +3292,11 @@ function renderGoals() {
 
   const CATEGORY_LABELS_G = {'Mount':'🐴 Mounts','Attack Pet':'⚔️ Attack Pets','Utility Pet':'🌾 Utility Pets'};
   let _lastGoalCat = null;
+  const chipSpecies = [];   // species without animals: a chip under the grid instead of a card
   for (const sp of getSpeciesOrder()) {
     const cfg = SPECIES_DATA[sp];
     if (!cfg) continue;
+    if (!speciesCardShown(sp)) { chipSpecies.push(sp); continue; }
     const cat = cfg.category || 'Mount';
     if (cat !== _lastGoalCat) {
       _lastGoalCat = cat;
@@ -3192,13 +3314,24 @@ function renderGoals() {
       grid.appendChild(_goalErrorCard(sp, err));
     }
   }
+  _renderSpeciesChips($id('goals-add-chips'), chipSpecies, !grid.children.length && !goalsChips?.children.length, 'goals');
   requestAnimationFrame(() => applyMasonry('goals-grid'));
 }
+
+// The stat goal fields on the Goals cards: one listener on the grid instead of an inline handler per field
+$id('goals-grid')?.addEventListener('change', e => {
+  const el = e.target;
+  if (!el?.classList?.contains('stat-goal-input')) return;
+  const sp = el.dataset.sp;
+  if (Object.hasOwn(SPECIES_DATA, sp)) updateStatGoal(sp, el.value);
+});
 
 /** Build the Goals card for one species, or its chip when the card is collapsed */
 function _renderGoalCard(sp, cfg, grid, goalsChips) {
   const goals = goalsMap[sp];
-  const n = getPairCount(sp);
+  // A species that cannot be bred keeps only the breed-out stat (it sets the total and the name), with a note: no goals,
+  // priority stars, sightings or breeding suggestions (#26). Stars saved for it stay in the data
+  const breedable = isBreedable(sp);
   const card = document.createElement('div');
   const isWide = cardWidths[sp] === 2;
   const isGoalCardCollapsed = collapsedGoalCards.has(sp);
@@ -3325,7 +3458,7 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
           <span style="font-size:11px;color:var(--dim);margin-left:8px">Default: VIG &nbsp;&#x2022;&nbsp; Non-rideable: try INS</span>
         </div>`)}
       </div>
-      <div class="goals-section">
+      ${breedable ? `<div class="goals-section">
         ${gsHdr('pairs','Species Goals — Bloodline × Phenotype')}
         ${gsBody('pairs', speciesGoalRows)}
       </div>
@@ -3336,8 +3469,8 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
       <div class="goals-section">
         ${gsHdr('bloodline','Bloodline Priority ★★★')}
         ${gsBody('bloodline', blRows)}
-      </div>
-      <div class="goals-section">
+      </div>` : `<div class="goals-section goals-no-breed">${$h(sp)} cannot be bred (the game has no fertility serum for it), so it has no goals, priority stars, sightings or breeding suggestions. The breed-out stat still sets its total and name.</div>`}
+      ${breedable ? `<div class="goals-section">
         ${gsHdr('pheno-sightings','Phenotype Sightings <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">🌿 = tamed (wild-caught, no lineage) &nbsp; 🧬 = bred (has parents)</span>')}
         ${gsBody('pheno-sightings',`<div class="pheno-sightings">${phSightingRadar}</div>`)}
       </div>
@@ -3348,7 +3481,7 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
       <div class="goals-section">
         ${gsHdr('suggestions','Breeding Suggestions <span style="font-size:10px;color:#555;margin-left:8px;font-weight:normal;text-transform:none;letter-spacing:0">based on your priority stars above</span>')}
         ${gsBody('suggestions',`<div class="suggestion-panel">${renderSuggestions(sp)}</div>`)}
-      </div>
+      </div>` : ''}
     </div>`;
 
   if (isGoalCardCollapsed && goalsChips) {
@@ -3372,7 +3505,7 @@ function _renderGoalCard(sp, cfg, grid, goalsChips) {
     // The card is already on the page, so a failure in these extras must not add an error card next to it
     try {
       _initPairCardDnD(card);
-      _drawGoalSightingRadars(sp);
+      if (breedable) _drawGoalSightingRadars(sp);
     } catch (err) {
       console.error(`Goals tab: could not finish ${sp}`, err);
     }
@@ -3399,15 +3532,10 @@ function updateGoalBreedOut(sp, val) {
   showToast(`Breed-out stat for ${sp} set to ${val}`);
 }
 
-function updateGoalPair(sp, idx, field, val) {
-  // Legacy — kept for any saved data still calling this
-  initGoals();
-  goalsMap[sp].pairs[idx][field] = val;
-  saveGoals(); renderGoals(); renderPairs(); renderAdvice();
-}
-
 function addSpeciesGoal(sp) {
+  if (!Object.hasOwn(SPECIES_DATA, sp)) return;
   initGoals();
+  if (goalsMap[sp].goals.length >= MAX_SPECIES_GOALS) { showToast(`${sp} already has the maximum of ${MAX_SPECIES_GOALS} goals`); return; }
   goalsMap[sp].goals.push({ bl: '', ph: '' });
   saveGoals(); renderGoals(); renderPairs();
 }
@@ -3425,9 +3553,11 @@ function updateSpeciesGoal(sp, idx, field, val) {
   saveGoals(); renderGoals(); renderPairs(); renderAdvice();
 }
 
+/** Set from the stat goal field on the Goals card: 0 to the species maximum; an empty or unreadable value goes back to the maximum */
 function updateStatGoal(sp, val) {
+  if (!Object.hasOwn(SPECIES_DATA, sp)) return;
   initGoals();
-  goalsMap[sp].statGoal = _clampInt(parseInt(val), 0, 999, 0);   // same range as initGoals()
+  goalsMap[sp].statGoal = _clampInt(parseInt(val), 0, getMaxTotal(sp), getMaxTotal(sp));   // same range as initGoals()
   saveGoals(); renderGoals();
 }
 
@@ -3526,15 +3656,43 @@ function toggleCardWidth(sp) {
 }
 
 // ── SCORING ──────────────────────────────────────────────────────
-function scoreFor(sp, bl, ph, total, pairIdx) {
+/** The species goals set on the Goals card that name a bloodline or a phenotype; a goal left at "any × any" sets no target */
+function speciesGoalTargets(sp) {
+  const g = goalsMap[sp];
+  return (g && Array.isArray(g.goals) ? g.goals : []).filter(gl => gl && (gl.bl || gl.ph));
+}
+
+/**
+ * The stat goal set on the Goals card: from this total up, the optimiser never suggests culling an animal, and the
+ * Breeding Suggestions stop calling it "below stat goal". The species maximum (a perfect total) is the default,
+ * and a larger stored number counts as that maximum
+ */
+function getStatGoal(sp) {
+  const max = getMaxTotal(sp);
+  return _clampInt(goalsMap[sp]?.statGoal, 0, max, max);
+}
+
+/** True if the animal fits one of the species goals (an empty side of a goal means "any"); a blank "any × any" row matches nothing */
+function matchesSpeciesGoal(sp, a) {
+  return speciesGoalTargets(sp).some(gl => (!gl.bl || gl.bl === a.bl) && (!gl.ph || gl.ph === a.ph));
+}
+
+/** The species goals as text for the advice and placement panels, for example "Alpha × P7"; '' when none is set */
+function goalSummary(sp) {
+  return speciesGoalTargets(sp).map(gl => `${gl.bl || 'any bloodline'} × ${gl.ph ? (phenoDisplay(sp, gl.ph) || gl.ph) : 'any phenotype'}`).join(', ');
+}
+
+/**
+ * Score for the advice and placement panels: total × 10, plus the species goal the animal matches best
+ * (+120 for its bloodline, +60 for its phenotype); without a bloodline match the bloodline star counts × 25,
+ * and the phenotype star always counts × 25. The goals are the species goals that replaced per-pair goals in v5
+ */
+function scoreFor(sp, bl, ph, total) {
   const g = goalsMap[sp] || {};
-  const goal = (g.pairs || [])[pairIdx] || {};
-  let s = total * 10;
-  if (goal.bl && bl === goal.bl) s += 120;
-  else s += ((g.blPriority || {})[bl] || 0) * 25;
-  if (goal.ph && ph === goal.ph) s += 60;
-  s += ((g.phenoWeights || {})[ph] || 0) * 25;
-  return s;
+  const blStar = (g.blPriority || {})[bl] || 0;
+  const goalPart = gl => (gl.bl && bl === gl.bl ? 120 : blStar * 25) + (gl.ph && ph === gl.ph ? 60 : 0);
+  const best = speciesGoalTargets(sp).reduce((m, gl) => Math.max(m, goalPart(gl)), goalPart({}));
+  return total * 10 + best + ((g.phenoWeights || {})[ph] || 0) * 25;
 }
 
 // ── ADVICE ───────────────────────────────────────────────────────
@@ -3547,45 +3705,47 @@ function computeAdvice() {
   STATS.forEach(s => { const el = $id(`stat-${s}`); stats[s] = el ? parseInt(el.value) || 0 : 0; });
   const total = getTotal(stats, sp);
   const hasStats = STATS.some(s => { const el = $id(`stat-${s}`); return el && el.value !== ''; });
-  if (!hasStats) return null;
+  if (!hasStats || !isBreedable(sp)) return null;   // no breeding advice for a species that cannot be bred
 
   const pairs    = pairsMap[sp] || [];
   const sexKey   = sex === 'M' ? 'm' : 'f';
   const spAnimals = animals.filter(a => a.sp === sp && a.sex === sex && canPair(a));
-  const goals    = goalsMap[sp] || {};
   const results  = [];
+  // Every slot works towards the species goals, so the new animal and each occupant are measured against all of them
+  const goalBls  = [...new Set(speciesGoalTargets(sp).map(gl => gl.bl).filter(Boolean))];
+  const goalPhs  = [...new Set(speciesGoalTargets(sp).map(gl => gl.ph).filter(Boolean))];
+  const newScore = scoreFor(sp, bl, ph, total);
+  const newBlMatch = goalBls.includes(bl);
+  const newPhMatch = goalPhs.includes(ph);
 
   pairs.slice(0, getPairCount(sp)).forEach((pair, pi) => {
     const currentName = pair[sexKey];
-    const goal = (goals.pairs || [])[pi] || {};
-    const newScore = scoreFor(sp, bl, ph, total, pi);
-    const newBlMatch = goal.bl ? bl === goal.bl : false;
-    const newPhMatch = goal.ph ? ph === goal.ph : false;
-
     if (!currentName) {
-      results.push({ type:'empty', pi, goal, newScore, newBlMatch, newPhMatch });
+      results.push({ type:'empty', pi, newScore, newBlMatch, newPhMatch });
       return;
     }
     const cur = spAnimals.find(a => a.name === currentName);
     if (!cur) return;
 
     const curTotal = getTotal(cur.stats, sp);
-    const curScore = scoreFor(sp, cur.bl, cur.ph, curTotal, pi);
+    const curScore = scoreFor(sp, cur.bl, cur.ph, curTotal);
     const delta = newScore - curScore;
     const totalDelta = total - curTotal;
-    const curBlMatch = goal.bl ? cur.bl === goal.bl : false;
-    const curIsTemp  = cur.status === 'Temp' || (goal.bl && cur.bl !== goal.bl);
+    const curBlMatch = goalBls.includes(cur.bl);
+    // A temp breeder is a Temp animal, or one that matches no species goal while goals name a bloodline. An occupant that
+    // matches another goal (for example on phenotype) is a goal carrier, not a temp breeder
+    const curIsTemp  = cur.status === 'Temp' || (goalBls.length > 0 && !curBlMatch && !matchesSpeciesGoal(sp, cur));
     const isTempBoost   = !newBlMatch && totalDelta >= TEMP_BOOST_MIN && delta <= 0;
     const replacesTemp  = curIsTemp && newBlMatch && totalDelta >= -2;
     let type;
     if (isTempBoost && !replacesTemp) type = 'temp';
-    else if (delta > 0 || replacesTemp)  type = 'upgrade';
+    else if (delta > 0)   type = 'upgrade';   // replacing a temp breeder is only advised when the score improves
     else if (delta === 0) type = 'equal';
     else type = 'worse';
 
-    results.push({ type, pi, goal, newScore, curScore, delta, currentName, currentId: cur.id,
+    results.push({ type, pi, newScore, curScore, delta, currentName, currentId: cur.id,
       currentTotal: curTotal, newBlMatch, newPhMatch, curBlMatch,
-      curPhMatch: goal.ph ? cur.ph === goal.ph : false,
+      curPhMatch: goalPhs.includes(cur.ph),
       totalDelta, isTempBoost, replacesTemp, curIsTemp });
   });
 
@@ -3593,7 +3753,7 @@ function computeAdvice() {
     const o = { empty:0, upgrade:1, temp:2, equal:3, worse:4 };
     return ((o[a.type] ?? 5) - (o[b.type] ?? 5)) || (b.delta - a.delta);
   });
-  return { results, sp, sex, total, bl, ph };
+  return { results, sp, sex, total, bl, ph, goalBls, goalText: goalSummary(sp) };
 }
 
 function renderAdvice() {
@@ -3602,10 +3762,12 @@ function renderAdvice() {
   const data = computeAdvice();
   if (!data) { panel.classList.remove('show'); return; }
 
-  const { results, sp, sex, total, bl } = data;
+  const { results, sp, sex, total, bl, goalBls, goalText } = data;
   const maxT = getMaxTotal(sp);
+  const goalBlText = goalBls.map($h).join(' or ');
+  const signed = n => (n > 0 ? '+' : '') + n;   // a score with its own sign: +12, 0, -15
   let html = `<div class="advice-hdr">Breeding Advice &nbsp;·&nbsp;
-    <span>${sp} ${sex==='F'?'♀':'♂'} · Total ${total}/${maxT} · ${bl}</span></div>`;
+    <span>${$h(sp)} ${sex==='F'?'♀':'♂'} · Total ${total}/${maxT} · ${$h(bl)}</span></div>`;
 
   if (!results.length) {
     html += `<div class="advice-item advice-neutral"><span class="advice-icon">i</span>
@@ -3617,7 +3779,7 @@ function renderAdvice() {
   const hasGoodNews = results.some(r => ['upgrade','empty','temp'].includes(r.type));
 
   results.forEach(r => {
-    const goalDesc = r.goal.bl ? $h(r.goal.bl) + (r.goal.ph ? ` / ${$h(r.goal.ph)}` : '') : 'No goal set';
+    const goalDesc = goalText ? `Goal: ${$h(goalText)}` : 'No goal set';
     const delBtn = r.currentId
       ? `<div class="advice-actions" style="margin-top:6px;">
           <span style="font-size:10px;color:var(--dim);margin-right:6px;">${$h(r.currentName)}:</span>
@@ -3628,7 +3790,7 @@ function renderAdvice() {
       : '';
 
     if (r.type === 'empty') {
-      const blNote = r.goal.bl ? (r.newBlMatch ? `✓ ${$h(bl)} matches goal` : `Goal wants ${$h(r.goal.bl)}`) : '';
+      const blNote = goalBls.length ? (r.newBlMatch ? `✓ ${$h(bl)} matches goal` : `Goal wants ${goalBlText}`) : '';
       html += `<div class="advice-item advice-upgrade">
         <span class="advice-icon">✓</span>
         <div class="advice-body"><div class="advice-title">Fill empty slot — Pair ${r.pi+1}</div>
@@ -3636,25 +3798,25 @@ function renderAdvice() {
         <span class="advice-score">Open</span></div>`;
     } else if (r.type === 'upgrade') {
       const statNote = `Stats: ${r.totalDelta >= 0 ? '+' : ''}${r.totalDelta} (${total} vs ${r.currentTotal})`;
-      const blNote2 = r.replacesTemp ? `Replaces temp breeder with goal bloodline ${bl}`
-        : r.newBlMatch && !r.curBlMatch ? `Gains goal bloodline (${bl})`
+      const blNote2 = r.replacesTemp ? `Replaces temp breeder with goal bloodline ${$h(bl)}`
+        : r.newBlMatch && !r.curBlMatch ? `Gains goal bloodline (${$h(bl)})`
         : r.newBlMatch && r.curBlMatch  ? `Both match goal bloodline`
-        : r.goal.bl ? `Goal: ${$h(r.goal.bl)}` : '';
+        : goalBls.length ? `Goal: ${goalBlText}` : '';
       html += `<div class="advice-item advice-upgrade">
         <span class="advice-icon">${r.replacesTemp ? '!!' : '>'}</span>
         <div class="advice-body">
           <div class="advice-title">${r.replacesTemp ? 'Replace temp breeder — ' : 'Replace '}${$h(r.currentName)} — Pair ${r.pi+1}</div>
           <div class="advice-detail">${[statNote, blNote2].filter(Boolean).join(' · ')}</div>
           ${delBtn}</div>
-        <span class="advice-score">+${r.delta}</span></div>`;
+        <span class="advice-score">${signed(r.delta)}</span></div>`;
     } else if (r.type === 'temp') {
       html += `<div class="advice-item advice-temp">
         <span class="advice-icon">⚡</span>
         <div class="advice-body">
           <div class="advice-title">Temporary Stat Boost — Pair ${r.pi+1}</div>
-          <div class="advice-detail">Stats: +${r.totalDelta} (${total} vs ${r.currentTotal}) · ${$h(bl)} goal: ${$h(r.goal.bl) || 'none'} · Mark as Temp${r.curBlMatch ? ' · Caution: current holds goal bloodline' : ''}</div>
+          <div class="advice-detail">Stats: ${signed(r.totalDelta)} (${total} vs ${r.currentTotal}) · ${$h(bl)} goal: ${goalBlText || 'none'} · Mark as Temp${r.curBlMatch ? ' · Caution: current holds goal bloodline' : ''}</div>
           ${delBtn}</div>
-        <span class="advice-score">+${r.totalDelta}</span></div>`;
+        <span class="advice-score">${signed(r.totalDelta)}</span></div>`;
     } else if (r.type === 'equal') {
       const blUp = r.newBlMatch && !r.curBlMatch;
       html += `<div class="advice-item ${blUp ? 'advice-upgrade' : 'advice-keep'}">
@@ -3670,23 +3832,24 @@ function renderAdvice() {
         html += `<div class="advice-item advice-keep">
           <span class="advice-icon">~</span>
           <div class="advice-body">
-            <div class="advice-title">Bloodline Upgrade (lower stats) — Pair ${r.pi+1}</div>
-            <div class="advice-detail">Stats: ${r.totalDelta} (${total} vs ${r.currentTotal}) · Matches goal bloodline ${$h(bl)}</div>
+            <div class="advice-title">Bloodline Upgrade${r.totalDelta < 0 ? ' (lower stats)' : ''} — Pair ${r.pi+1}</div>
+            <div class="advice-detail">Stats: ${signed(r.totalDelta)} (${total} vs ${r.currentTotal}) · Matches goal bloodline ${$h(bl)}</div>
             ${delBtn}</div>
-          <span class="advice-score" style="color:var(--acc)">${r.delta}</span></div>`;
+          <span class="advice-score" style="color:var(--acc)">${signed(r.delta)}</span></div>`;
       } else {
         html += `<div class="advice-item advice-discard">
           <span class="advice-icon">v</span>
           <div class="advice-body">
             <div class="advice-title">Weaker — Pair ${r.pi+1} (${$h(r.currentName)})</div>
-            <div class="advice-detail">Stats: ${r.totalDelta}${r.goal.bl && r.curBlMatch ? ' · Current holds goal bloodline' : ''}</div>
+            <div class="advice-detail">Stats: ${signed(r.totalDelta)}${r.curBlMatch ? ' · Current holds goal bloodline' : ''}</div>
             ${delBtn}</div>
-          <span class="advice-score">${r.delta}</span></div>`;
+          <span class="advice-score">${signed(r.delta)}</span></div>`;
       }
     }
   });
 
-  if (!hasGoodNews) {
+  // An animal that meets the stat goal is worth keeping even when no slot improves
+  if (!hasGoodNews && total < getStatGoal(sp)) {
     html += `<div class="advice-item advice-discard" style="margin-top:6px;border-color:#6a2020">
       <span class="advice-icon">✕</span>
       <div class="advice-body"><div class="advice-title">Recommend: Discard or set as Reserve</div>
@@ -3830,9 +3993,8 @@ function onSpeciesChange() {
   const breedInfo = $id('breed-info');
   if (breedInfo) {
     // Unknown species (for example from a loaded file) have no serum, so the line stays hidden
-    const showBreed = breedable && !!cfg.serum;
-    breedInfo.hidden = !showBreed;
-    breedInfo.textContent = showBreed ? `🧬 Breed with ${cfg.serum}. ${obtainText(cfg)}` : '';
+    breedInfo.textContent = serumText(cfg);
+    breedInfo.hidden = !breedInfo.textContent;
   }
 
   buildStatsRow();
@@ -3849,6 +4011,11 @@ function syncParentFields() {
   const row = $id('parent-fields-row'), notice = $id('no-breed-notice');
   if (row)    row.style.display    = breedable || keepParents ? '' : 'none';
   if (notice) notice.style.display = breedable || keepParents ? 'none' : '';
+}
+
+/** The serum line of a breedable species, shown in the New Animal form and on its Pairs card; '' when it has no serum */
+function serumText(cfg) {
+  return cfg && cfg.breedable !== false && cfg.serum ? `🧬 Breed with ${cfg.serum}. ${obtainText(cfg)}` : '';
 }
 
 /** How the first animals of a species are obtained, as one sentence for the New Animal form */
@@ -4679,25 +4846,21 @@ let _paAnimalId = null;
  */
 function computePairSuggestions(animal) {
   const sexKey = animal.sex === 'M' ? 'm' : 'f';
-  const compatSp = [animal.sp, ...(CROSS_BREEDS[animal.sp] || [])];
+  const compatSp = [animal.sp, ...(CROSS_BREEDS[animal.sp] || [])].filter(isBreedable);
   const results = [];
 
-  // Check if this animal is already placed in any pair
-  for (const [s, ps] of Object.entries(pairsMap)) {
-    for (const p of (ps || [])) {
-      if (p.m === animal.name || p.f === animal.name) return []; // already placed
-    }
-  }
+  if (pairedNames().has(animal.name)) return [];   // already placed
 
   for (const sp of compatSp) {
     const n = getPairCount(sp);
     const pairs = pairsMap[sp] || [];
+    // The species goals are the same for every slot, so the new animal scores the same everywhere
+    const newScore = scoreFor(sp, animal.bl, animal.ph, getTotal(animal.stats, animal.sp));
     for (let i = 0; i < n; i++) {
       const pair = pairs[i] || { m:'', f:'' };
       const curName = pair[sexKey] || '';
       const curAnimal = curName ? animals.find(a => a.name === curName) : null;
-      const newScore = scoreFor(sp, animal.bl, animal.ph, getTotal(animal.stats, animal.sp), i);
-      const curScore = curAnimal ? scoreFor(sp, curAnimal.bl, curAnimal.ph, getTotal(curAnimal.stats, sp), i) : 0;
+      const curScore = curAnimal ? scoreFor(sp, curAnimal.bl, curAnimal.ph, getTotal(curAnimal.stats, sp)) : 0;
       const isEmpty = !curName;
       const delta = isEmpty ? newScore : newScore - curScore;
       results.push({ sp, pairIdx: i, sexKey, newScore, curScore, delta, isEmpty, curName, curAnimal });
@@ -4738,7 +4901,9 @@ function buildPairAssignHTML(animal, suggestions, sel) {
     suggMsg = `<span class="pa-sugg-bad">▼ ${sel.delta} score</span> vs current (no upgrade, but slot available)`;
   }
   const spShort = SPECIES_DATA[sel.sp]?.short || sel.sp;
-  const suggLine = `💡 Best match: <strong>${$h(spShort)} · Pair ${sel.pairIdx + 1}</strong> &nbsp; ${suggMsg}`;
+  const goalText = goalSummary(sel.sp);
+  const suggLine = `💡 Best match: <strong>${$h(spShort)} · Pair ${sel.pairIdx + 1}</strong> &nbsp; ${suggMsg}`
+    + `<div class="pa-goals">${goalText ? `Scores count your ${$h(sel.sp)} goals: ${$h(goalText)}` : `No ${$h(sel.sp)} goals set, so scores count stats and stars`}</div>`;
 
   // Species dropdown
   const spOpts = compatSp.map(sp =>
@@ -4811,8 +4976,8 @@ function paGetCurrentSlot() {
   const pair    = (pairsMap[sp] || [])[pairIdx] || {};
   const curName = pair[sexKey] || '';
   const curAnimal = curName ? animals.find(a => a.name === curName) : null;
-  const newScore  = scoreFor(sp, animal.bl, animal.ph, getTotal(animal.stats, animal.sp), pairIdx);
-  const curScore  = curAnimal ? scoreFor(sp, curAnimal.bl, curAnimal.ph, getTotal(curAnimal.stats, sp), pairIdx) : 0;
+  const newScore  = scoreFor(sp, animal.bl, animal.ph, getTotal(animal.stats, animal.sp));
+  const curScore  = curAnimal ? scoreFor(sp, curAnimal.bl, curAnimal.ph, getTotal(curAnimal.stats, sp)) : 0;
   return { sp, pairIdx, sexKey, isEmpty: !curName, curName, curAnimal, newScore, curScore, delta: curName ? newScore - curScore : newScore };
 }
 
@@ -5147,9 +5312,10 @@ function viewAnimal(id) {
   const maxT  = getMaxTotal(a.sp);
   const pct   = Math.round(tot / maxT * 100);
 
-  // Which pair slot is this animal currently in?
+  // Which pair slot is this animal currently in? Slots an older file kept for a species that cannot be bred are not shown
   let currentPair = null;
   for (const [s, ps] of Object.entries(pairsMap)) {
+    if (!isBreedable(s)) continue;
     for (let j = 0; j < (ps || []).length; j++) {
       if (ps[j].m === a.name || ps[j].f === a.name) {
         currentPair = { sp: s, idx: j, sex: ps[j].m === a.name ? 'M' : 'F' };
@@ -5184,7 +5350,8 @@ function viewAnimal(id) {
     const cls = `view-suggestion view-sug-${sug.action}`;
     sugHtml = `<div class="${cls}"><span class="view-sug-icon">${sugIcons[sug.action]}</span><span class="view-sug-text"><span class="view-sug-action" style="color:${sugColors[sug.action]}">${sugLabels[sug.action]}</span><br><span style="color:var(--dim);font-size:11px">${$h(sug.reason)}</span></span></div>`;
   } else {
-    sugHtml = `<div class="view-suggestion view-sug-keep"><span class="view-sug-icon">❓</span><span class="view-sug-text"><span class="view-sug-action">No suggestion</span><br><span style="color:var(--dim);font-size:11px">Run the optimizer for a full herd analysis</span></span></div>`;
+    const why = isBreedable(a.sp) || !Object.hasOwn(SPECIES_DATA, a.sp) ? 'Run the optimizer for a full herd analysis' : `${a.sp} cannot be bred, so the optimizer makes no suggestions`;
+    sugHtml = `<div class="view-suggestion view-sug-keep"><span class="view-sug-icon">❓</span><span class="view-sug-text"><span class="view-sug-action">No suggestion</span><br><span style="color:var(--dim);font-size:11px">${$h(why)}</span></span></div>`;
   }
 
   // Available pair slots for this species (to assign into)
@@ -5223,7 +5390,9 @@ function viewAnimal(id) {
       });
     }
   });
-  if (!pairSlotsHtml) pairSlotsHtml = canPair(a)
+  if (!pairSlotsHtml) pairSlotsHtml = Object.hasOwn(SPECIES_DATA, a.sp) && !isBreedable(a.sp)
+    ? `<div style="color:var(--dim);font-size:11px">${$h(a.sp)} cannot be bred, so it has no pair slots</div>`
+    : canPair(a)
     ? `<div style="color:var(--dim);font-size:11px">No pair slots available — add pairs first</div>`
     : `<div style="color:var(--dim);font-size:11px">${$h(STATUS_LABEL[a.status] || a.status)} animals cannot be placed in a pair</div>`;
 
@@ -5333,16 +5502,20 @@ function renderPairs() {
   const addSel = $id('pairs-add-species');
   if (addSel) {
     const cur = addSel.value;
-    addSel.innerHTML = Object.entries(SPECIES_DATA).map(([sp, cfg]) =>
-      `<option value="${sp}">${cfg.short} – ${sp}</option>`).join('');
+    addSel.innerHTML = Object.entries(SPECIES_DATA).filter(([sp]) => isBreedable(sp)).map(([sp, cfg]) =>
+      `<option value="${$h(sp)}">${$h(cfg.short)} – ${$h(sp)}</option>`).join('');
     if (cur) addSel.value = cur;
   }
 
   const CATEGORY_LABELS = {'Mount':'🐴 Mounts','Attack Pet':'⚔️ Attack Pets','Utility Pet':'🌾 Utility Pets'};
   let _lastPairCat = null;
+  const chipSpecies = [];   // breedable species without animals: a "+ Species" chip under the grid instead of a card
   for (const sp of getSpeciesOrder()) {
     const cfg = SPECIES_DATA[sp];
     if (!cfg) continue;
+    // No card for a species that cannot be bred; pair slots an older file saved for it stay in the data (#26)
+    if (!isBreedable(sp)) continue;
+    if (!speciesCardShown(sp)) { chipSpecies.push(sp); continue; }
     const cat = cfg.category || 'Mount';
     if (cat !== _lastPairCat) {
       _lastPairCat = cat;
@@ -5376,27 +5549,22 @@ function renderPairs() {
     card.addEventListener('dragleave', () => card.style.outline = '');
     card.addEventListener('drop', e => { e.preventDefault(); card.style.outline = ''; const from = e.dataTransfer.getData('text/plain'); reorderSpecies(from, sp); });
 
-    // For upgrade recommendations use own-species only
-    const allPaired = new Set(Object.values(pairsMap).flatMap(ps => (ps||[]).flatMap(p => [p.m, p.f])).filter(Boolean));
-    const freeM = spAnimals.filter(a => a.sex === 'M' && !allPaired.has(a.name) && ['Keep','?','Breed'].includes(a.status));
-    const freeF = spAnimals.filter(a => a.sex === 'F' && !allPaired.has(a.name) && ['Keep','?','Breed'].includes(a.status));
+    // For upgrade recommendations use own-species only. Best first, whatever the herd order: the highest total, and among
+    // equal totals the animal that scores best against the species goals and stars
+    const allPaired = pairedNames();
+    const totalOf = a => getTotal(a.stats, sp);
+    const byTotalAndGoal = (a, b) => (totalOf(b) - totalOf(a)) || (scoreFor(sp, b.bl, b.ph, totalOf(b)) - scoreFor(sp, a.bl, a.ph, totalOf(a)));
+    const freeM = spAnimals.filter(a => a.sex === 'M' && !allPaired.has(a.name) && ['Keep','?','Breed'].includes(a.status)).sort(byTotalAndGoal);
+    const freeF = spAnimals.filter(a => a.sex === 'F' && !allPaired.has(a.name) && ['Keep','?','Breed'].includes(a.status)).sort(byTotalAndGoal);
 
-    const makeBadge = (animal) => {
-      if (!animal) return '';
-      if (animal.status === 'Temp') return `<span class="pair-goal-badge goal-temp">Temp (${$h(animal.bl)})</span>`;
+    // Marks on a pair tile: ⚠ for a bloodline or phenotype starred negatively on the Goals card, and ✓G for an animal that
+    // matches a species goal (not shown on a Temp breeder or next to a warning, as before)
+    const tileMarks = animal => {
       const gMap = goalsMap[sp] || {};
       const blW = (gMap.blPriority || {})[animal.bl] ?? 0;
       const phW = (gMap.phenoWeights || {})[animal.ph] ?? 0;
-      // Negative trait warning
-      if (blW < 0) return `<span class="pair-goal-badge" style="background:rgba(231,76,60,.15);color:#e74c3c;border-color:#c0392b">⚠ ${$h(animal.bl)}</span>`;
-      if (phW < 0) return `<span class="pair-goal-badge" style="background:rgba(231,76,60,.15);color:#e74c3c;border-color:#c0392b">⚠ neg ph</span>`;
-      // Species goal match
-      const spGoals = gMap.goals || [];
-      const matchIdx = spGoals.findIndex(g => (!g.bl || g.bl === animal.bl) && (!g.ph || g.ph === animal.ph));
-      if (matchIdx >= 0) return `<span class="pair-goal-badge goal-match">✓ Goal ${matchIdx + 1}</span>`;
-      // Positively starred trait
-      if (blW > 0) return `<span class="pair-goal-badge goal-empty">${'★'.repeat(blW)} ${$h(animal.bl)}</span>`;
-      return '';
+      const warn = [blW < 0 ? `${animal.bl} bloodline` : '', phW < 0 ? `${phenoDisplay(sp, animal.ph) || animal.ph} phenotype` : ''].filter(Boolean).join(' and ');
+      return { warn, goal: !warn && animal.status !== 'Temp' && matchesSpeciesGoal(sp, animal) };
     };
 
     // ── Tile-based pair blocks (v0.23 DnD design) ──────────────
@@ -5408,10 +5576,10 @@ function renderPairs() {
       const fConf   = p.fConflict ? '⚠' : '';
 
       const mTile = mAnimal
-        ? _buildPairTile(mAnimal, sp, i, 'M', makeBadge)
+        ? _buildPairTile(mAnimal, sp, i, 'M', tileMarks)
         : `<span class="slot-ph-icon">♂</span><span class="slot-ph-lbl">Drop Male</span>`;
       const fTile = fAnimal
-        ? _buildPairTile(fAnimal, sp, i, 'F', makeBadge)
+        ? _buildPairTile(fAnimal, sp, i, 'F', tileMarks)
         : `<span class="slot-ph-icon">♀</span><span class="slot-ph-lbl">Drop Female</span>`;
 
       return `<div class="pair-block">
@@ -5429,7 +5597,7 @@ function renderPairs() {
 
     // ── Pool: animals available to drag into pair slots ──────────
     // Use all pairs across all species so cross-breed animals already slotted elsewhere don't show as available
-    const usedInPairs = new Set(Object.values(pairsMap).flatMap(ps => ps.flatMap(p => [p.m, p.f])).filter(Boolean));
+    const usedInPairs = pairedNames();
     const poolAnimals = allPairAnimals.filter(a => !usedInPairs.has(a.name));
     const POOL_MAX = 8;
     let poolHtml = poolAnimals.slice(0, POOL_MAX).map(a => _buildPoolTile(a, sp)).join('');
@@ -5449,6 +5617,7 @@ function renderPairs() {
 
     const bo = getBreedOut(sp);
     const crossNote = '';
+    const serum = serumText(cfg);
 
     const isCollapsed = collapsedPairSpecies.has(sp);
 
@@ -5497,6 +5666,7 @@ function renderPairs() {
         </h3>
         <div class="pair-card-body">
           ${crossNote}
+          ${serum ? `<div class="pair-serum">${$h(serum)}</div>` : ''}
           <div class="pairs-body-flex">${pairBlocks}</div>
           <div class="pool-wrap">
             <div class="pool-hdr">
@@ -5514,6 +5684,7 @@ function renderPairs() {
       _initPairCardDnD(card);
     }
   }
+  _renderSpeciesChips($id('pairs-add-chips'), chipSpecies, !grid.children.length && !chipsRow?.children.length, 'pairs');
   requestAnimationFrame(() => applyMasonry('pairs-grid'));
 }
 
@@ -6478,12 +6649,15 @@ const _SP_ICONS = {
 };
 function _spIcon(sp){ const cfg = SPECIES_DATA[sp]; return _SP_ICONS[cfg?.short || ''] || '🐾'; }
 
-// Build a filled tile for inside a pair slot
-function _buildPairTile(a, sp, pairIdx, sex, makeBadge) {
+// Build a filled tile for inside a pair slot. marksFor(a) returns { goal, warn } for the ✓G and ⚠ marks
+function _buildPairTile(a, sp, pairIdx, sex, marksFor) {
   const sc  = a.sex === 'M' ? 'm' : 'f';
   const tot = getTotal(a.stats, sp);
-  const gBadge = makeBadge ? makeBadge(a) : '';
-  const goalMark = (gBadge && gBadge.includes('goal-match')) ? '<span class="tile-goal">✓G</span>' : '';
+  const marks = marksFor ? marksFor(a) : { goal: false, warn: '' };
+  const goalMark = marks.goal ? '<span class="tile-goal">✓G</span>' : '';
+  // The tile's own tooltip names the trait, so the mark itself needs no pointer events
+  const warnMark = marks.warn ? '<span class="tile-warn">⚠</span>' : '';
+  const warnTitle = marks.warn ? ` · ⚠ negative trait: ${$h(marks.warn)}` : '';
   const rmSp = $esc(sp);
   const rmSex = sex.toLowerCase();
   const blCol = BLOODLINE_COLOR[a.bl] || '#666';
@@ -6494,14 +6668,14 @@ function _buildPairTile(a, sp, pairIdx, sex, makeBadge) {
   const tileId = formatSpId(a.sp, a.spId); // e.g. "DR02", also for a custom name
   return `<div class="animal-tile ${sc}" draggable="true"
     data-aid="${a.id}" data-psp="${$esc(sp)}" data-pi="${pairIdx}" data-sex="${sex}"
-    title="${$esc(a.name)} · ${$h(a.bl)} · ${tot}"
+    title="${$esc(a.name)} · ${$h(a.bl)} · ${tot}${warnTitle}"
     style="--ph-border:${phRarityCol}"
     onclick="viewAnimal(${a.id})"
   ><span class="tile-icon">${_spIcon(a.sp)}</span
   ><span class="tile-name">${$h(tileId)}</span
   ><span class="tile-bl-badge" style="color:${blCol};border-color:${blCol}">${$h(a.bl)}</span
   ><span class="tile-stat">${tot}</span
-  >${goalMark}<button class="tile-rm" onclick="event.stopPropagation();updatePair('${rmSp}',${pairIdx},'${rmSex}','')">✕</button
+  >${goalMark}${warnMark}<button class="tile-rm" onclick="event.stopPropagation();updatePair('${rmSp}',${pairIdx},'${rmSex}','')">✕</button
   ></div>`;
 }
 

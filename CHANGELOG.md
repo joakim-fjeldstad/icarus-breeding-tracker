@@ -4,6 +4,38 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.32 – Goals, scoring and species visibility
+**2026-10-11**
+
+Implements #25 and #26.
+
+### Changes
+- Pairs and Goals show cards only for species you have animals of; the other species are chips under the cards, such as "+ Moa" (on Pairs only breedable species), that open a card without adding an animal, and a new herd shows only these chips instead of 52 cards (#26)
+- A species gets its card as soon as its first animal is added, without a reload (#26)
+- Species that cannot be bred get no Pairs card, pair slots, breeding advice or optimiser suggestions, and their Goals card keeps only the breed-out stat and a note (#26)
+- Pair slots that an older herd file saved for a species that cannot be bred stay in the file, unused and not shown (#26)
+- Pairs cards name the fertility serum with the same text as the New Animal form (#26)
+- Horse, Hyena and Cattle have new dot colours (brick red, burnt orange and sage green) because the old ones looked the same, and the smoke test keeps every two species colours at least 5 apart in CIEDE2000 (#26)
+- The stat goal is a field under Breeding Suggestions on the Goals card, and the optimiser and Breeding Suggestions use it; it starts at the species maximum (#25)
+- Pair tiles show a red ⚠ for a bloodline or phenotype starred negatively on the Goals card, and the tile's tooltip names the trait (#25)
+- The stat goal runs from 0 to the species maximum, and the optimiser shows it next to each species (#25)
+- A species keeps at most 32 goals; repeated goals, and goals in a herd file that name an unknown bloodline or phenotype, are dropped on load (#25)
+- A herd of only species that cannot be bred is told on Pairs that there is nothing to pair, and Optimize All says there is nothing to optimize (#26)
+
+### Fixes
+- The advice panel and the placement panel score against the species goals and name them, instead of the per-pair goals that the v5 update emptied, so they no longer say "No goal set" while a goal exists (#25)
+- Switching the Unstable star off stays off in the Goals tab and after a reload; only a species without the star gets the ★★ default (#25)
+- An unpaired animal that meets the stat goal is never suggested for culling, and one that matches a goal is suggested for Reserve, also below the stat goal (#25)
+- "Replace temp breeder" and "Gains goal bloodline" advice now appears when it applies: an occupant that matches a goal is no temp breeder, and a lower score shows as a loss with its own sign (#25)
+- The advice in the New Animal form no longer recommends discarding an animal that meets the stat goal (#25)
+- A goal left at "any" on both sides matches nothing, and the optimiser and Breeding Suggestions do not count it as a goal (#25)
+- With the Goals tab open, deleting the last animal of a species removes its card at once (#26)
+- The optimiser's "outclassed" cull rule is removed; it could not fire, and with a stat goal below the maximum it would have culled animals that meet it (#25)
+- The upgrade row on a Pairs card shows the free male and female with the highest total, ties going to the better goal match, instead of the first in herd order (#25)
+- The empty per-pair goal lists left by the v5 update are dropped on load and no longer kept in step with the pair count (#25)
+
+---
+
 ## v0.31e – Pair slots follow animal changes
 **2026-10-11**
 

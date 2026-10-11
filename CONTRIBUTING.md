@@ -31,10 +31,10 @@ Each species is one entry in `SPECIES_DATA` in `index.html`:
 |---|---|
 | `category` | `'Mount'`, `'Attack Pet'` or `'Utility Pet'` |
 | `short` | Two-letter code used in animal names; must be unique |
-| `color` | Colour of the species dot; keep it clearly different from the other species |
+| `color` | Colour of the species dot. The smoke test requires a CIEDE2000 distance of at least 5 from every other species colour. Seven pairs are between 5 and 10 today (Arctic Moa and Snow Wolf 5.5, Terrenus and Gribbler 6.2, Woolly Mammoth and Wild Boar 6.3, Dune Raptor and Draven 8.0, Tusker and Zebra 9.0, Draven and Chicken 9.4, Arctic Moa and Tusker 9.9), so keep a new colour well clear of those |
 | `wiki` | Link to the species page on the Icarus wiki |
-| `defaultPairs` | Number of pair slots a new herd starts with |
-| `breedable`, `serum` | `true` and the in-game serum name if a fertility serum exists. Set `breedable: false` explicitly otherwise, because a missing flag counts as breedable |
+| `defaultPairs` | Number of pair slots a new herd starts with; 0 for a species that cannot be bred |
+| `breedable`, `serum` | `true` and the in-game serum name if a fertility serum exists. Set `breedable: false` explicitly otherwise, because a missing flag counts as breedable. A species that cannot be bred gets no pair slots, goals or optimiser suggestions |
 | `obtain` | How the first animals are obtained: `'juvenile'`, `'snare'`, `'station'` or `'mission'` |
 | `bait`, `baitBiomes`, `baitNote` | Snare Trap bait and where it works (`obtain: 'snare'` only) |
 | `phenotypes` | `{label, weight}` list; index 0 is the base phenotype; weights follow the game data |
