@@ -695,7 +695,7 @@ await ev(`applyData(JSON.parse(window.__snap9)); migrateMemory(); saveAndRefresh
 
 // ── #21: feedback links ─────────────────────────────────────────────────────────────
 // Every GitHub link in the page goes to this repository (the links used to point at the account the project had before)
-const REPO = 'https://github.com/joakim-fjeldstad/icarus-breeding-tracker/', REPO_ISSUES = REPO + 'issues';
+const REPO = 'https://github.com/rnk-gaming/icarus/', REPO_ISSUES = REPO + 'issues';
 const feedback = await ev(`(() => {
   const card = [...document.querySelectorAll('.entry-card')].find(c => /Feedback/.test(c.querySelector('h2')?.textContent || ''));
   return { elsewhere: [...document.querySelectorAll('[href]')].map(e => e.getAttribute('href')).filter(h => /github\\.com/i.test(h) && !h.startsWith(${JSON.stringify(REPO)})),

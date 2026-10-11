@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Report a security problem
-    url: https://github.com/joakim-fjeldstad/icarus-breeding-tracker/security/advisories/new
+    url: https://github.com/rnk-gaming/icarus/security/advisories/new
     about: Please do not post security problems in a public issue. Report them privately here.

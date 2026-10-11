@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.31c-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.31d-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -34,7 +34,7 @@ A free, open-source herd tracker and breeding planner for the survival game [Ica
 
 The easiest way to use the app is directly in your browser, nothing to download or update:
 
-**https://joakim-fjeldstad.github.io/icarus-breeding-tracker**
+**https://rnk-gaming.github.io/icarus**
 
 The web version is always the latest release. Your data is saved to a JSON file on your own computer through the File System Access API; nothing is sent to any server.
 
@@ -350,7 +350,7 @@ If you prefer to keep a local copy (useful for offline play or a specific versio
 
 ### Option A: download the file directly
 
-1. Go to the [repository on GitHub](https://github.com/joakim-fjeldstad/icarus-breeding-tracker)
+1. Go to the [repository on GitHub](https://github.com/rnk-gaming/icarus)
 2. Click `index.html` in the file list
 3. Click the **download icon (⬇)** in the top right of the file view
 4. Save it to a permanent local folder, for example a folder in your Documents
@@ -361,7 +361,7 @@ Every released version is also available under **Tags** on GitHub.
 ### Option B: clone with Git
 
 ```
-git clone https://github.com/joakim-fjeldstad/icarus-breeding-tracker.git
+git clone https://github.com/rnk-gaming/icarus.git
 ```
 
 Pull updates with `git pull` whenever a new version is released.
@@ -373,11 +373,11 @@ Pull updates with `git pull` whenever a new version is released.
 Use the **⚙ Settings** tab inside the app for direct links to submit bug reports and feature requests on GitHub. A free GitHub account is required to post, but anyone can view existing issues.
 
 Direct links:
-- 🐛 [Report a Bug](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=bug&template=bug_report.md)
-- ✨ [Feature Request](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues/new?labels=enhancement&template=feature_request.md)
-- 📋 [View All Issues](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/issues)
+- 🐛 [Report a Bug](https://github.com/rnk-gaming/icarus/issues/new?labels=bug&template=bug_report.md)
+- ✨ [Feature Request](https://github.com/rnk-gaming/icarus/issues/new?labels=enhancement&template=feature_request.md)
+- 📋 [View All Issues](https://github.com/rnk-gaming/icarus/issues)
 
-Found a security problem? Please don't post it in a public issue. Use **Report a vulnerability** on the repository's [Security tab](https://github.com/joakim-fjeldstad/icarus-breeding-tracker/security).
+Found a security problem? Please don't post it in a public issue. Use **Report a vulnerability** on the repository's [Security tab](https://github.com/rnk-gaming/icarus/security).
 
 ---
 
