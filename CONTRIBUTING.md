@@ -60,7 +60,7 @@ Both tools use `tools/browser.mjs` for the browser and `tools/fixtures.mjs` as t
 ## Pull requests
 
 - One topic per pull request, branched from `main`.
-- Describe what changed, why, and how you tested it, and link the issue with "Refs #n". Issues are closed once the fix is released.
+- Describe what changed, why, and how you tested it, and link the issue with "Closes #n", so GitHub closes it when the pull request is merged. Use "Refs #n" for a pull request that only touches part of an issue.
 - Every pull request gets a code review and a security review before it is merged.
 
 ## Commit messages
