@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.31-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.31b-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -100,6 +100,7 @@ Shows all your animals in a sortable, filterable table. Key features:
 - **🪦 Show Dead** / **🛸 Show Station** toggles to include or exclude those animals from the view
 - **🛸 Station** and **🪦 Dead** status pills show those animals even when the matching toggle is off
 - **⚡ Optimize Pairs** button in the section header — opens the pair optimizer for all species (see Breeding Pairs)
+- **Badges** warn about data that needs attention: **unknown species** on an animal from a file made with another version, and **duplicate ID** when two animals share an ID. Edit the animal to fix it
 
 </details>
 

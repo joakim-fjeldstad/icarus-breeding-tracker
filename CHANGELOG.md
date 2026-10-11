@@ -4,6 +4,43 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.31b – Fixes for the optimiser, advice panel and shared files
+**2026-10-10**
+
+Implements #8 and #9.
+
+### Fixes
+- **Opening the Optimize modal no longer throws** — a leftover call to the viewer's radar referenced names that do not exist there (#8)
+- **The advice panel refreshes after Reserve, Cull or Undecided** — the animal leaves its pair slot and its buttons disappear at once, instead of staying until the panel is reopened (#8)
+
+### Shared files (#9)
+- **Opening a file that is not a herd file no longer adopts it** — picking another JSON file (for example the game's `Mounts.json`) under Open existing data file used to make it the save file and overwrite it with an empty herd. The app now refuses with a message and changes nothing (found in the review for #12)
+- **Malformed goals in a herd file no longer blank the Goals tab** — a species entry that is not an object, or a `goals`, `pairs`, `phenoWeights` or `blPriority` field of the wrong type, is replaced with defaults on load, also for files from before v0.23
+- **Browser storage goes through the same checks as a file**
+- **Phenotype and bloodline counts use null-prototype maps**, so a file with `__proto__` as a value cannot touch `Object.prototype`
+- **Star scores in breeding suggestions are escaped**
+- **Control characters are dropped from loaded text** (tab and newline stay), and the CSV export guards a leading tab or carriage return as well as `=`, `+`, `-` and `@`
+- **CSV import** now ignores a row whose bloodline is not one of the game's twelve (the count is shown in the toast) and clears an unknown phenotype, like the file load path
+- **Pair slots, goals and the optimiser** only show escaped text from the file: pair slot names, goal labels and animal names without a space could run script before
+- **Only known bloodlines and phenotypes are kept** — a bloodline is matched regardless of case, an unknown phenotype label is cleared, and `Swamp Raptor` phenotype labels from before v0.28 are renamed to the Geothermal labels, together with the species' pair count, sightings and card width from before v0.26 (data version 7)
+- **Animals with an unknown species are kept and flagged** in My Herd, so a file from another version does not lose animals. Their species and phenotype text is escaped wherever it is shown; before this version a crafted file could run script through the species cell
+- **Duplicate IDs are flagged** in My Herd. Older files can hold two animals with the same ID (the Swamp Raptor rename merged two counters); the badge appears on every visible animal that shares an ID, also when its twin is dead or on the station and hidden. Animals without an ID get a free one
+
+### Found in the full review (#12)
+- **Reserve target and stat goal from a file are numbers** from 0 to 999 — text in those fields could run script when the Goals tab opened
+- **A parent that is not found is shown as text** in the New Animal form — a parent name from a file, CSV or game file could run script when the animal was edited
+- **The pair placement panel shows the current occupant's name and status as text**
+- **Log entry types are limited to the app's own** — any other text could break out of the badge markup
+- **A species named like an Object member** (`constructor`, `__proto__`) is flagged as unknown instead of blanking My Herd and the Animal View
+- **Star weights are whole numbers from -3 to 3** — a large number from a file froze the Pairs tab
+- **Pair counts are whole numbers from 0 to 99** — a huge number created a million slots on load. The UI stops at 99 pair slots and a reserve target of 999
+- **Status from a file must be one of the app's statuses**; anything else becomes Undecided
+- **IDs and ID counters are whole numbers from 1 to 999999**, so a broken counter can no longer mint duplicate IDs, and an unknown species no longer pushes the counter of a real species with the same code
+- **Renaming `Swamp` labels to `Geothermal` merges weights and sightings** when a file already has both
+- **Cancel and Confirm in the import preview and the confirm dialog are styled** — they were plain browser buttons with the label cut off
+
+---
+
 ## v0.31 – Import from the game
 **2026-10-10**
 
