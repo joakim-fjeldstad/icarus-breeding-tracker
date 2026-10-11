@@ -19,7 +19,7 @@ A free, open-source herd tracker and breeding planner for the survival game [Ica
 - [Use the web version](#-use-the-web-version)
 - [Two minutes to your first pair](#-two-minutes-to-your-first-pair)
 - [Where your data lives](#-where-your-data-lives)
-- [How to use](#-how-to-use): [New Animal](#new-animal) · [My Herd](#my-herd) · [Animal Viewer](#animal-viewer) · [Breeding Pairs](#breeding-pairs) · [Goals](#goals) · [Lineage](#lineage) · [Log](#log) · [Import from game](#import-from-game) · [Settings](#settings)
+- [How to use](#-how-to-use): [New Animal](#new-animal) · [My Herd](#my-herd) · [Animal View](#animal-view) · [Breeding Pairs](#breeding-pairs) · [Goals](#goals) · [Lineage](#lineage) · [Log](#log) · [Import from game](#import-from-game) · [Settings](#settings)
 - [Glossary](#-glossary)
 - [FAQ and troubleshooting](#-faq-and-troubleshooting)
 - [Status reference](#-status-reference)
@@ -47,7 +47,7 @@ Prefer a local copy for offline use or a specific version? See [alternative inst
 ## 🚀 Two minutes to your first pair
 
 1. **Open the app** in Chrome or Edge. The startup screen asks how to store your data. Click **✨ Start fresh (create new file)**, pick any folder and save as `herd_data.json`. On later visits click **▶ Continue with herd_data.json** and grant permission once.
-2. **Add two animals.** In **➕ New Animal**, pick the species, sex, bloodline and phenotype, type the seven stats you see on the animal in game, and save. The app generates a name such as `DR01 29F-Wild VIG5` and gives the animal an ID. Do this for a male and a female of the same species.
+2. **Add two animals.** In **➕ New Animal**, pick the species, sex, bloodline and phenotype, type the seven stats you see on the animal in game, and save. The app generates a name such as `DR01 F29-Wild VIG5` and gives the animal an ID. Do this for a male and a female of the same species.
 
    ![New Animal, filled in](screenshots/new-animal-filled.png)
 
@@ -81,7 +81,7 @@ If you used the app when it stored data in the browser, click **⬆ Migrate data
 
 ![New Animal form](screenshots/new-animal.png)
 
-Fill in the species, sex, bloodline, phenotype, generation, stats (VIG, FIT, PHY, REF, TGH, ADP, INS) and, if the animal was bred, the parents. The app generates a name automatically in the format `DR01 55F-Bold P3 VIG2` (see the [glossary](#-glossary) for how to read it). Hover over any stat label or column header to see what the stat does.
+Fill in the species, sex, bloodline, phenotype, generation, stats (VIG, FIT, PHY, REF, TGH, ADP, INS) and, if the animal was bred, the parents. The app generates a name automatically in the format `DR01 F55-Bold P3 VIG2` (see the [glossary](#-glossary) for how to read it). Hover over any stat label or column header to see what the stat does.
 
 Below the species the form shows how that species is obtained in game (tamed from a wild juvenile, caught with a Snare Trap and a named bait, bought from the station, or a mission reward) and, for breedable species, which fertility serum to use.
 
@@ -107,9 +107,9 @@ All your animals in a sortable, filterable table:
 - **Search** by name, nickname or ID (for example `DR123` or `wild vig4`); every word must match, and an active search includes Dead and Station animals
 - **Change status inline** with the dropdown in each row
 - **Edit** an animal with the edit button; **Cancel** leaves the form without saving
-- **⭐ Favorite** marks an animal the optimiser must never suggest for culling
+- **★ Favorite** marks an animal the optimiser must never suggest for culling
 - **Nicknames** are shown in bold with the generated name dimmed beside them
-- **Click any row** to open the [Animal Viewer](#animal-viewer)
+- **Click any row** to open the [Animal View](#animal-view)
 - **🪦 Show Dead** and **🛸 Show Station** include those animals in the view; the **Station** and **Dead** status pills show them even when the toggles are off
 - **⚡ Optimize Pairs** opens the pair optimiser for all species (see [Breeding Pairs](#breeding-pairs))
 
@@ -118,11 +118,11 @@ Two badges warn about data that needs attention: **unknown species** on an anima
 </details>
 
 <details>
-<summary id="animal-viewer"><strong>🔍 Animal Viewer</strong></summary>
+<summary id="animal-view"><strong>🔍 Animal View</strong></summary>
 
-![Animal Viewer](screenshots/animal-view.png)
+![Animal View](screenshots/animal-view.png)
 
-Clicking any animal row, tile or name anywhere in the app opens the **Animal Viewer**, a panel that slides in from the right without blocking the rest of the page. It shows:
+Clicking any animal row, tile or name anywhere in the app opens the **Animal View**, a panel that slides in from the right without blocking the rest of the page. It shows:
 
 - **Badge chips** for bloodline (in its colour), phenotype rarity, sex and generation
 - **Radar chart** of all stat values
@@ -153,7 +153,7 @@ Each pair has two **tile slots** styled after the in-game item slots, male ♂ a
 
 When placed in a slot the animal's status becomes **Breed**. When removed, it goes back to **Undecided** unless you had set something else on purpose (Reserve, Station and so on), which is kept.
 
-Each slot shows a goal badge: **✓ Goal N** when the animal matches a species goal, **⚠ bloodline** when it carries a negatively starred trait, or **★★ Bold** when it has a positively starred trait without matching a goal.
+Each tile shows the animal's ID, a bloodline badge and its stat total, plus a small **✓G** mark when the animal matches a species goal. Hover over a tile for the full name.
 
 An **upgrade recommendation** panel below each species card names free animals that would improve the weakest slot, or says **no upgrade**.
 
@@ -193,7 +193,7 @@ Per-species configuration. Each card and each section inside it collapses indepe
 
 ![Lineage tree](screenshots/lineage.png)
 
-Select an animal to see its family tree, 2 to 4 generations deep or the whole tree. Each node shows stats, bloodline, generation and inheritance marks: whether each stat came from the mother or the father, improved beyond both parents or fell below them.
+Select an animal to see its family tree, 2, 3 or 4 generations deep (the depth dropdown offers those three, 3 by default). Each node shows stats, bloodline, generation and inheritance marks: whether each stat came from the mother or the father, improved beyond both parents or fell below them.
 
 The sidebar shows species insights: average stat gain per breeding, the best performing stat, and the average change of every stat against the parents' average.
 
@@ -248,7 +248,7 @@ Good to know:
 - **Export CSV** writes the herd as a spreadsheet file; **Import CSV** restores or bulk-adds animals. Importing your own export again adds nothing. Rows with an unknown species or bloodline are ignored and counted
 - **Import from game**, see above
 - **Share your herd** renders an image of your animals (top 10 overall, the best of each species, or all active animals) and copies it to the clipboard, with a download button as fallback
-- **Delete all data** clears the herd and pairs after a confirmation. Export a CSV first
+- **Delete all data** clears the herd and the pair slots after a confirmation. Goals, pair counts, the log and your other settings are kept. Export a CSV first
 - Links to report a bug, request a feature or view all issues on GitHub
 
 </details>
@@ -259,14 +259,14 @@ Good to know:
 
 | Term | Meaning |
 |---|---|
-| **Stats** | The seven genetic values of an animal, 0 to 10 each: VIG (Vitality), FIT (Endurance), PHY (Muscle), REF (Agility), TGH (Toughness), ADP (Hardiness), INS (Utility). In game they are called by the names in brackets. |
+| **Stats** | The seven genetic values of an animal, 0 to 10 each: VIG (Vigor), FIT (Fitness), PHY (Physique), REF (Reflex), TGH (Toughness), ADP (Adaptation), INS (Instinct). These are the names the app uses in its tooltips. The save file stores them as Vitality, Endurance, Muscle, Agility, Toughness, Hardiness and Utility, in the same order. |
 | **Total** | The sum of the six stats that are not the breed-out stat, out of 60. The percentage in My Herd is total over the species maximum. |
 | **Breed-out stat** | The one stat per species you want at 0, so it is left out of the total and the name. Default VIG; set per species in Goals. |
 | **Bloodline** | One of the game's twelve lineages (Wild, Brave, Careful, Timid, Bold, Hardy, Stout, Ambitious, Resolute, Unstable, Savage, Alpha). Each gives fixed and growing modifiers; Unstable raises the mutation chance when breeding. |
 | **Phenotype** | The coat variant: base (P0) and up to seven numbered variants per species, with rarities from the game data (base, uncommon, rare, legendary). |
 | **Generation** | 1 for tamed animals, one more than the highest parent for bred ones. |
 | **Status** | What you plan to do with the animal; see the [status reference](#-status-reference). |
-| **Generated name** | `DR01 55F-Bold P3 VIG2` means: Dune Raptor number 1, total 55, female, bloodline Bold, phenotype P3, breed-out stat VIG at 2. The ID (`DR01`) is how you refer to the animal as a parent. |
+| **Generated name** | `DR01 F55-Bold P3 VIG2` means: Dune Raptor number 1, female, total 55, bloodline Bold, phenotype P3, breed-out stat VIG at 2. The ID (`DR01`) is how you refer to the animal as a parent. |
 | **Nickname** | A display alias. Names imported from the game land here. |
 | **Pair slot** | One male and one female you are breeding together. The number of slots per species is yours to set. |
 
@@ -329,12 +329,12 @@ All 26 species the tracker knows, with how the first animals are obtained and wh
 | SZ | Shaggy Zebra | Mount | Wild juvenile | Not breedable |
 | GB | Gribbler | Attack Pet | Snare: Gribbler Bait (Tundra) | Gribber Fertility Serum (the game's spelling) |
 | HY | Hyena | Attack Pet | Snare: Hyena Bait (Desert, Volcanic) | Not breedable |
-| KW | Kiwi | Attack Pet | Snare: Kiwi Bait (Forest, Grassland, Arctic, at night) | Not breedable |
 | SK | Skulk | Attack Pet | Snare: Skulk Bait (Tundra, Arctic) | Not breedable |
 | SW | Snow Wolf | Attack Pet | Snare: Wolf Bait (Arctic) | Wolf Fertility Serum |
 | WB | Wild Boar | Attack Pet | Snare: Wild Boar Bait (Forest, Grassland) | Boar Fertility Serum |
 | WO | Forest Wolf | Attack Pet | Snare: Wolf Bait (Forest, Grassland) | Wolf Fertility Serum |
 | SC | Storca | Attack Pet | Snare: Storca Bait (Tundra, Arctic) | Not breedable |
+| KW | Kiwi | Attack Pet | Snare: Kiwi Bait (Forest, Grassland, Arctic, at night) | Not breedable |
 | CT | Cattle (Cow / Bull) | Utility Pet | Station | Bull Fertility Serum |
 | CK | Chicken (Rooster) | Utility Pet | Station | Rooster Fertility Serum |
 | SH | Sheep (Ram) | Utility Pet | Station | Ram Fertility Serum |

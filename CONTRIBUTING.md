@@ -53,6 +53,10 @@ A new species also needs an `<option>` in the New Animal form, an icon in `_SP_I
 
 New features and bug fixes should add a check. For a bug fix, the check should fail on the version before the fix.
 
+`tools/screenshots.mjs` regenerates the README screenshots. Run `node tools/screenshots.mjs` from the repository root: it seeds a synthetic herd, captures each view and overwrites the PNGs in `screenshots/`. It has the same requirements as the smoke test. Run it when a change alters a view shown in the README, look through the images, and commit them in the same pull request as the README.
+
+Both tools use `tools/browser.mjs` for the browser and `tools/fixtures.mjs` as the shared source of synthetic data. Never use a real herd or save file in tests or screenshots.
+
 ## Pull requests
 
 - One topic per pull request, branched from `main`.

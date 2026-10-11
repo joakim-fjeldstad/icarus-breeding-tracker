@@ -15,7 +15,14 @@ const outDir = join(root, 'screenshots');
 mkdirSync(outDir, { recursive: true });
 
 const WIDTH = 1400, HEIGHT = 900;
-const { ev, send, errors, close } = await openPage(page, { width: WIDTH, height: HEIGHT });
+// Freeze the clock so the footer time and log timestamps are identical on every run (2026-10-10 12:00 UTC)
+const FROZEN = Date.UTC(2026, 9, 10, 12, 0, 0);
+const freezeClock = `(() => { const T = ${FROZEN}, Real = Date;
+  class FrozenDate extends Real { constructor(...a) { if (a.length === 0) super(T); else super(...a); } static now() { return T; } }
+  window.Date = FrozenDate; })();`;
+const { ev, send, errors, close } = await openPage(page, { width: WIDTH, height: HEIGHT, initScript: freezeClock });
+// Same time zone on every machine, so the log times in the PNGs do not depend on where the script runs
+await send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' });
 
 async function shot(name, { full = false, maxHeight = 2000 } = {}) {
   await sleep(350);
@@ -33,10 +40,9 @@ async function shot(name, { full = false, maxHeight = 2000 } = {}) {
 
 await ev(`useBrowserStorage(); true`);
 await sleep(400);
-await ev(`localStorage.setItem('icarus_log_banner_dismissed', '1'); true`).catch(() => {});
 const n = await ev(SEED_SHOWCASE);
 console.log('seeded', n, 'animals');
-const names = await ev(`({ comet: animals.find(a => a.nickname === 'Comet').name, cometId: animals.find(a => a.nickname === 'Comet').id, dr1: animals.find(a => a.nickname === 'Dusty'), tank: animals.find(a => a.nickname === 'Tank') })`);
+const names = await ev(`({ comet: animals.find(a => a.nickname === 'Comet').name, cometId: animals.find(a => a.nickname === 'Comet').id, dr1: animals.find(a => a.nickname === 'Dusty'), dr2: animals.find(a => a.sp === 'Dune Raptor' && a.sex === 'M' && !a.isBred && a.bl === 'Alpha'), tank: animals.find(a => a.nickname === 'Tank') })`);
 
 // 1. New Animal, empty
 await ev(`showTab('entry'); resetFormUI(); window.scrollTo(0, 0); true`);
@@ -45,9 +51,11 @@ await shot('new-animal');
 await ev(`(() => { const s = document.getElementById('f-species'); s.value = 'Dune Raptor'; onSpeciesChange();
   document.getElementById('f-sex').value = 'F'; document.getElementById('f-bloodline').value = 'Alpha';
   const ph = document.getElementById('f-phenotype'); if (ph) ph.value = SPECIES_DATA['Dune Raptor'].phenotypes[7].label;
-  [7, 6, 7, 6, 6, 5, 4].forEach((v, i) => { document.getElementById('stat-' + STATS[i]).value = v; });
-  document.getElementById('f-p1').value = ${JSON.stringify(names.dr1.name)}; updateName(); if (typeof updateFormRadar === 'function') updateFormRadar(); return true; })()`).catch(e => console.error('fill form:', e.message));
-await shot('new-animal-filled');
+  [7, 6, 7, 6, 6, 5, 4].forEach((v, i) => { const el = document.getElementById('stat-' + STATS[i]); el.value = v; onStatInput(el, STATS[i]); });
+  document.getElementById('f-p1').value = ${JSON.stringify(names.dr1.name)}; onParentInput(1);
+  document.getElementById('f-p2').value = ${JSON.stringify(names.dr2.name)}; onParentInput(2);
+  updateName(); return true; })()`).catch(e => console.error('fill form:', e.message));
+await shot('new-animal-filled', { full: true });
 await ev(`resetFormUI(); true`);
 // 3. My Herd
 await ev(`showTab('herd'); setFilter('status', 'all', null); setSearch(''); showDead = false; showStation = true; renderHerd(); window.scrollTo(0, 0); true`);

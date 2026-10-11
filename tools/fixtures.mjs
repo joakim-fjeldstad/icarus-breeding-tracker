@@ -41,7 +41,11 @@ export const SEED_SHOWCASE = `(() => {
   goalsMap['Dune Raptor'].goals = [{ bl: 'Alpha', ph: SPECIES_DATA['Dune Raptor'].phenotypes[7].label }];
   goalsMap['Dune Raptor'].blPriority = { Alpha: 3, Unstable: 2, Timid: -1 };
   goalsMap['Dune Raptor'].phenoWeights = { [SPECIES_DATA['Dune Raptor'].phenotypes[7].label]: 3 };
-  addLog('Dusty added to the herd', 'add'); addLog('Comet added to the herd (bred from Dusty and DR02)', 'add'); addLog('Tank: Keep → Station', 'status');
+  const comet = animals.find(a => a.nickname === 'Comet');
+  addLog('Dusty added to the herd', 'add'); addLog(comet.name + ' added to the herd (bred from ' + dr3.name + ' and ' + dr4.name + ')', 'add'); addLog('Tank: Keep → Station', 'status');
+  addLog(dr3.name + ': Undecided → Keep', 'status');
+  // Fixed timestamps so regenerated screenshots do not change between runs (2026-10-10 12:00 UTC, one hour apart)
+  logEntries.forEach((e, i) => { e.ts = Date.UTC(2026, 9, 10, 12, 0, 0) - i * 3600000; });
   saveAndRefreshFull();
   return animals.length;
 })()`;

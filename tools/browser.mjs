@@ -17,9 +17,10 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 /**
  * Start a headless browser and open `pageUrl`. Resolves to { ev, send, errors, close }.
  * `ev(expr)` evaluates JavaScript in the page and returns its value; `errors` collects page exceptions and console errors.
+ * `initScript` is JavaScript that runs in the page before any of its own scripts (used to freeze the clock).
  * Exits the process with code 2 when no browser can be started.
  */
-export async function openPage(pageUrl, { width = 1600, height = 1200 } = {}) {
+export async function openPage(pageUrl, { width = 1600, height = 1200, initScript = '' } = {}) {
   const CHROME = process.env.CHROME_PATH || (BROWSER_CANDIDATES[process.platform] || []).find(p => existsSync(p));
   if (!CHROME) { console.error('No Chrome, Chromium or Edge found. Set CHROME_PATH to the browser executable.'); process.exit(2); }
   const profile = mkdtempSync(join(tmpdir(), 'icarus-browser-'));
@@ -70,6 +71,7 @@ export async function openPage(pageUrl, { width = 1600, height = 1200 } = {}) {
   await send('Runtime.enable');
   await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+  if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
   await send('Page.navigate', { url: pageUrl });
   for (let i = 0; i < 75; i++) {
     if (await ev(`document.readyState === 'complete' && typeof SPECIES_DATA === 'object'`).catch(() => false)) break;
