@@ -26,6 +26,19 @@ Implements #8 and #9.
 - **Animals with an unknown species are kept and flagged** in My Herd, so a file from another version does not lose animals. Their species and phenotype text is escaped wherever it is shown; before this version a crafted file could run script through the species cell
 - **Duplicate IDs are flagged** in My Herd. Older files can hold two animals with the same ID (the Swamp Raptor rename merged two counters); the badge appears on every visible animal that shares an ID, also when its twin is dead or on the station and hidden. Animals without an ID get a free one
 
+### Found in the full review (#12)
+- **Reserve target and stat goal from a file are numbers** from 0 to 999 — text in those fields could run script when the Goals tab opened
+- **A parent that is not found is shown as text** in the New Animal form — a parent name from a file, CSV or game file could run script when the animal was edited
+- **The pair placement panel shows the current occupant's name and status as text**
+- **Log entry types are limited to the app's own** — any other text could break out of the badge markup
+- **A species named like an Object member** (`constructor`, `__proto__`) is flagged as unknown instead of blanking My Herd and the Animal View
+- **Star weights are whole numbers from -3 to 3** — a large number from a file froze the Pairs tab
+- **Pair counts are whole numbers from 0 to 99** — a huge number created a million slots on load. The UI stops at 99 pair slots and a reserve target of 999
+- **Status from a file must be one of the app's statuses**; anything else becomes Undecided
+- **IDs and ID counters are whole numbers from 1 to 999999**, so a broken counter can no longer mint duplicate IDs, and an unknown species no longer pushes the counter of a real species with the same code
+- **Renaming `Swamp` labels to `Geothermal` merges weights and sightings** when a file already has both
+- **Cancel and Confirm in the import preview and the confirm dialog are styled** — they were plain browser buttons with the label cut off
+
 ---
 
 ## v0.31 – Import from the game

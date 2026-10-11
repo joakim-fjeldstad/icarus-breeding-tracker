@@ -64,6 +64,11 @@ button{cursor:pointer;border:none;border-radius:4px;font-size:12px;}
 .btn:hover{background:var(--acc2);}
 .btn-sm{background:var(--panel);color:var(--wht);padding:4px 10px;border:1px solid var(--bdr);}
 .btn-sm:hover{border-color:var(--acc);color:var(--acc);}
+/* Dialog buttons (import preview, showConfirm): colours of .btn and .btn-sm, one size so the pair lines up */
+.btn-primary{background:var(--acc);color:#000;padding:7px 16px;font-weight:bold;border:1px solid var(--acc);white-space:nowrap;}
+.btn-primary:hover{background:var(--acc2);border-color:var(--acc2);}
+.btn-secondary{background:var(--panel);color:var(--wht);padding:7px 16px;border:1px solid var(--bdr);white-space:nowrap;}
+.btn-secondary:hover{border-color:var(--acc);color:var(--acc);}
 .btn-ghost{background:none;color:var(--dim);padding:4px 8px;}
 .btn-ghost:hover{color:var(--red);}
 .btn-copy{background:var(--pur2);color:var(--pur);border:1px solid var(--pur);padding:4px 10px;}
@@ -690,7 +695,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
   <div id="entry-reserve-info" style="font-size:11px;color:#aaa;margin-bottom:4px;display:none;">
     <span id="entry-reserve-text"></span>
     &nbsp;—&nbsp;
-    <label>Reserve target: <input type="number" id="entry-reserve-target" min="0" max="99" style="width:48px;background:var(--inp);color:var(--wht);border:1px solid var(--bdr);border-radius:4px;padding:2px 6px;font-size:11px;" onchange="updateReserveTarget()"></label>
+    <label>Reserve target: <input type="number" id="entry-reserve-target" min="0" max="999" style="width:48px;background:var(--inp);color:var(--wht);border:1px solid var(--bdr);border-radius:4px;padding:2px 6px;font-size:11px;" onchange="updateReserveTarget()"></label>
   </div>
   <hr>
   <div class="form-row" style="align-items:flex-end;gap:6px;">
@@ -1058,6 +1063,8 @@ const STATUS_LIST  = ['?','Keep','Breed','Temp','Reserve','Station','Discard','D
 const STATUS_ICON  = { '?':'❓', Keep:'✅', Breed:'🐣', Temp:'⚡', Reserve:'🔶', Station:'🛸', Discard:'🗑️', Dead:'🪦' };
 const STATUS_LABEL = { '?':'Undecided', Keep:'Keep', Breed:'Breed', Temp:'Temp Breed', Reserve:'Reserve', Station:'On Station', Discard:'Discard', Dead:'Dead/Culled' };
 const STATUS_COLOR = { '?':'#666', Keep:'#00cc55', Breed:'#e8a020', Temp:'#ffaa00', Reserve:'#88aaff', Station:'#5bc8d4', Discard:'#888', Dead:'#555' };
+// Log entry types the app writes; a loaded log entry with any other type becomes 'add'
+const LOG_TYPES    = ['add','edit','status','pair','breed','delete','suggestion'];
 /** Display name: nickname if set, else original name */
 const displayName = a => (a && a.nickname) ? a.nickname : (a ? a.name : '');
 
@@ -1098,7 +1105,8 @@ const BLOODLINE_INFO = {
 //             'juvenile' = tame a wild juvenile, 'snare' = Snare Trap with bait,
 //             'station'  = bought from the station, 'mission' = mission reward
 // bait, baitBiomes, baitNote: bait item and where it works (obtain 'snare' only)
-const SPECIES_DATA = {
+// No prototype, so a species name from a file like 'constructor' or '__proto__' finds nothing instead of an Object member
+const SPECIES_DATA = Object.assign(Object.create(null), {
   // ── MOUNTS ──────────────────────────────────────────────────────
   'Dune Raptor':       { category:'Mount',      short:'DR', color:'#e8a020', wiki:'https://icarus.wiki.gg/wiki/Dune_Raptor',       defaultPairs:4, breedable:true,  serum:'Raptor Fertility Serum', obtain:'juvenile', phenotypes:[
     {label:'Dune Raptor (base)', weight:2000},
@@ -1200,11 +1208,11 @@ const SPECIES_DATA = {
     {label:'Sheep (base)', weight:2000}]},
   'Pig':               { category:'Utility Pet', short:'PG', color:'#e09080', wiki:'https://icarus.wiki.gg/wiki/Pets#Pig',         defaultPairs:2, breedable:true,  serum:'Pig Fertility Serum', obtain:'station', phenotypes:[
     {label:'Pig (base)', weight:2000}]}
-};
+});
 
 // ── CROSS-BREEDING CONFIG ─────────────────────────────────────────
 // Cross-breeding removed — mechanic was bugged (DR/GR share skill trees).
-const CROSS_BREEDS = {};
+const CROSS_BREEDS = Object.create(null);   // no prototype, same reason as SPECIES_DATA
 
 // ── STORAGE KEYS ─────────────────────────────────────────────────
 const KEYS = {
@@ -1417,19 +1425,43 @@ function loadSpAids() {
   }
 }
 
-/** Get and increment per-species sequential ID */
-function getNextSpId(sp) {
-  const sh = getShort(sp);
-  if (!nextSpAid[sh]) nextSpAid[sh] = 1;
-  const id = nextSpAid[sh]++;
+// Highest per-species ID; the loader drops anything above it, so nothing may hand one out
+const MAX_SP_ID = 999999;
+
+/** The ID getNextSpId() hands out next: the counter, or once the counter is past MAX_SP_ID the lowest ID the species
+ * does not use. extraUsed is an optional Set of IDs that are taken later (CSV rows). The herd is only scanned past the
+ * limit, so the usual path stays a lookup; _reserveSpIds() and saveAnimal() keep the counter ahead of the herd */
+function _spIdCandidate(sp, extraUsed) {
+  const next = nextSpAid[getShort(sp)] || 1;
+  if (next <= MAX_SP_ID) return next;
+  const used = new Set(extraUsed || []);
+  animals.forEach(a => { if (a.sp === sp && a.spId) used.add(a.spId); });
+  let id = 1;
+  while (used.has(id)) id++;
+  return id;
+}
+
+/** Get the next per-species ID and move the counter on (past MAX_SP_ID the counter stays where it is) */
+function getNextSpId(sp, extraUsed) {
+  const sh = getShort(sp), id = _spIdCandidate(sp, extraUsed);
+  if ((nextSpAid[sh] || 1) <= MAX_SP_ID) nextSpAid[sh] = id + 1;
   // nextSpAid is included in saveAll(); no direct storage write needed here
   return id;
 }
 
-/** Peek at the next ID without incrementing — used for name preview */
+/** Reserve every ID in use so a new or missing ID never collides.
+ * Unknown species are skipped: their fallback code ('DR' for 'Dragon') can belong to a real species */
+function _reserveSpIds() {
+  animals.forEach(a => {
+    if (!a.spId || !Object.hasOwn(SPECIES_DATA, a.sp)) return;
+    const sh = getShort(a.sp);
+    nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, a.spId + 1);
+  });
+}
+
+/** Peek at the next ID without incrementing — used for name preview, so it shows the ID that will be saved */
 function peekNextSpId(sp) {
-  const sh = getShort(sp);
-  return nextSpAid[sh] ?? 1;
+  return _spIdCandidate(sp);
 }
 
 /** Format a display ID like "DR01" */
@@ -1566,6 +1598,10 @@ function _sanitizeStr(v, maxLen = 200) {
 
 /** A bloodline from a file is kept only if the game has it; anything else becomes empty (the name still shows the text) */
 function _validBloodline(v) { const s = _sanitizeStr(v, 20).toLowerCase(); return BLOODLINES.find(b => b.toLowerCase() === s) || ''; }
+/** A whole number (from a file or the UI) is clamped to min..max; anything else becomes def */
+function _clampInt(v, min, max, def) { return Number.isInteger(v) ? Math.max(min, Math.min(max, v)) : def; }
+/** A status from a file is kept only if the app knows it, like the CSV import; anything else becomes '?' */
+function _validStatus(v) { const s = _sanitizeStr(v, 20); return STATUS_LIST.includes(s) ? s : '?'; }
 /** A phenotype is kept only if it is one of the species' labels; an unknown species keeps the text (escaped wherever it is shown).
  * Runs in migrateMemory(), after the rename steps, so a label from an older version is renamed before it is checked */
 function _validPhenotype(sp, v) {
@@ -1583,7 +1619,8 @@ function applyData(d) {
   // Animals: accept only array, sanitize all string fields
   animals = Array.isArray(d.herd) ? d.herd.filter(a => a && typeof a === 'object' && !Array.isArray(a)).map(a => ({
     id:       typeof a.id === 'number' ? a.id : Date.now() + Math.random(),
-    spId:     typeof a.spId === 'number' ? a.spId : 0,
+    // 1..MAX_SP_ID only: 1e300 is an integer too and would give names like DR1e+300. 0 means "assign one" in migrateMemory()
+    spId:     Number.isInteger(a.spId) && a.spId >= 1 && a.spId <= MAX_SP_ID ? a.spId : 0,
     sp:       _sanitizeStr(a.sp),
     sex:      _sanitizeStr(a.sex, 1),
     bl:       _validBloodline(a.bl),
@@ -1599,7 +1636,7 @@ function applyData(d) {
     name:     _sanitizeStr(a.name),
     nickname: _sanitizeStr(a.nickname),
     favorite: !!a.favorite,
-    status:   _sanitizeStr(a.status, 20),
+    status:   _validStatus(a.status),
     notes:    _sanitizeStr(a.notes, 500),
     ...(typeof a.level === 'number' ? { level: Math.max(1, Math.min(50, a.level)) } : {}),
   })) : [];
@@ -1610,7 +1647,8 @@ function applyData(d) {
   pairsMap   = isObj(d.pairs) ? Object.fromEntries(Object.entries(d.pairs).map(([k, v]) => [k, Array.isArray(v) ? v.map(p => ({ m: _sanitizeStr(p?.m), f: _sanitizeStr(p?.f) })) : []])) : {};
   goalsMap   = isObj(d.goals)      ? d.goals      : {};
   pairCounts = isObj(d.pairCounts) ? d.pairCounts : {};
-  nextSpAid  = isObj(d.nextSpAid)  ? d.nextSpAid  : {};
+  // Counters are whole numbers in 1..MAX_SP_ID like the IDs; a string here would make nextSpAid[sh]++ give NaN and duplicate IDs
+  nextSpAid  = isObj(d.nextSpAid)  ? Object.fromEntries(Object.entries(d.nextSpAid).map(([k, v]) => [k, Number.isInteger(v) && v >= 1 && v <= MAX_SP_ID ? v : 1])) : {};
   phenoStats = isObj(d.phenoStats) ? d.phenoStats : {};
   blStats    = isObj(d.blStats)    ? d.blStats    : {};
   cardWidths = isObj(d.cardWidths) ? d.cardWidths : {};
@@ -1626,7 +1664,7 @@ function applyData(d) {
   logEntries = Array.isArray(d.logEntries) ? d.logEntries.filter(e => e && typeof e === 'object').map(e => ({
     ts:   typeof e.ts === 'number' ? e.ts : Date.now(),
     msg:  _sanitizeStr(e.msg, 500),
-    type: _sanitizeStr(e.type, 20),
+    type: LOG_TYPES.includes(e.type) ? e.type : 'add',   // the type ends up in a class attribute
   })) : [];
   logMax = typeof d.logMax === 'number' ? Math.max(10, Math.min(1000, d.logMax)) : 100;
 }
@@ -1742,20 +1780,31 @@ function migrateMemory() {
     const g = goalsMap[GEO];
     if (g && typeof g === 'object' && !Array.isArray(g)) {
       if (Array.isArray(g.goals)) g.goals.forEach(gl => { if (gl && typeof gl === 'object') { const l = fix(gl.ph); if (l !== gl.ph) { gl.ph = l; dirty = true; } } });
-      if (g.phenoWeights && typeof g.phenoWeights === 'object') for (const k of Object.keys(g.phenoWeights)) { const l = fix(k); if (l !== k) { g.phenoWeights[l] = g.phenoWeights[k]; delete g.phenoWeights[k]; dirty = true; } }
+      // A weight already stored under the new label wins over the old one
+      if (g.phenoWeights && typeof g.phenoWeights === 'object') for (const k of Object.keys(g.phenoWeights)) { const l = fix(k); if (l !== k) { if (!Object.hasOwn(g.phenoWeights, l)) g.phenoWeights[l] = g.phenoWeights[k]; delete g.phenoWeights[k]; dirty = true; } }
     }
     const ps = phenoStats[GEO];
-    if (ps && typeof ps === 'object') for (const k of Object.keys(ps)) { const l = fix(k); if (l !== k) { ps[l] = ps[k]; delete ps[k]; dirty = true; } }
+    // Sightings under both labels are added together; a count that is not a number counts as 0
+    const isEntry = v => v && typeof v === 'object' && !Array.isArray(v), num = v => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    if (ps && typeof ps === 'object') for (const k of Object.keys(ps)) {
+      const l = fix(k);
+      if (l === k) continue;
+      if (Object.hasOwn(ps, l)) {
+        const into = isEntry(ps[l]) ? ps[l] : (ps[l] = {}), from = isEntry(ps[k]) ? ps[k] : {};
+        into.tamed = num(into.tamed) + num(from.tamed);
+        into.bred  = num(into.bred)  + num(from.bred);
+      } else ps[l] = ps[k];
+      delete ps[k]; dirty = true;
+    }
   }
 
   // ── Always-run baseline: fill required fields on all animals ──────
   // Reserve every ID in use first, so an animal without one never gets a taken number
-  animals.forEach(a => { if (a.spId) { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, a.spId + 1); } });
+  _reserveSpIds();
   animals.forEach(a => {
     if (!a.stats)           a.stats  = {};
     if (a.id === undefined) { a.id   = Date.now() + Math.random(); dirty = true; }
     if (!a.spId)            { a.spId = getNextSpId(a.sp);        dirty = true; }
-    if (!a.status)          a.status = '?';
     const ph = _validPhenotype(a.sp, a.ph);
     if (ph !== a.ph)        { a.ph = ph;                           dirty = true; }
   });
@@ -1767,8 +1816,8 @@ function migrateMemory() {
   // If anything changed, persist immediately so the file is up to date
   if (dirty) save();
 
+  initPairCounts();   // first: initGoals() sizes each goal's pair list from these counts
   initGoals();
-  initPairCounts();
 }
 
 /** Load from localStorage (fallback / legacy) */
@@ -2006,7 +2055,20 @@ function adjustSightingsOnEdit(sp, oldBl, newBl, oldPh, newPh, oldIsBred, newIsB
 // ── PAIR COUNTS ──────────────────────────────────────────────────
 function initPairCounts() {
   for (const [sp, cfg] of Object.entries(SPECIES_DATA)) {
-    if (pairCounts[sp] === undefined) pairCounts[sp] = cfg.defaultPairs;
+    // A file can carry anything here, and the slot lists are grown to this number: a whole number is clamped to 0..99
+    // (0 is allowed, deletePairRow can reach it), anything else becomes the species default
+    const v = pairCounts[sp];
+    pairCounts[sp] = _clampInt(v, 0, 99, cfg.defaultPairs);
+    // A count cut down to 99 also cuts the slot list, or animals in slots 100+ would stay paired but never show.
+    // An animal that loses its slot is no longer breeding: 'Breed' becomes '?', as when the optimiser replaces it
+    if (Number.isInteger(v) && v > 99 && Array.isArray(pairsMap[sp])) {
+      const kept = pairsMap[sp].slice(0, pairCounts[sp]), stillPaired = new Set(kept.flatMap(p => [p.m, p.f]));
+      pairsMap[sp].slice(pairCounts[sp]).forEach(p => [p.m, p.f].forEach(n => {
+        const a = n && !stillPaired.has(n) ? animals.find(x => x.name === n) : null;
+        if (a && a.status === 'Breed') a.status = '?';
+      }));
+      pairsMap[sp] = kept;
+    }
   }
 }
 
@@ -2055,6 +2117,8 @@ function addPairFromTopBar() {
 }
 
 function addPairSlot(sp) {
+  // The loader caps pair counts at 99, so the UI stops there too
+  if ((pairCounts[sp] || 1) >= 99) { showToast(`${sp} already has the maximum of 99 pairs`); return; }
   pairCounts[sp] = (pairCounts[sp] || 1) + 1;
   if (!pairsMap[sp]) pairsMap[sp] = [];
   while (pairsMap[sp].length < pairCounts[sp]) pairsMap[sp].push({ m:'', f:'' });
@@ -2541,13 +2605,17 @@ function initGoals() {
     if (!isObj(goalsMap[sp])) goalsMap[sp] = {};
     const g = goalsMap[sp];
     if (!Array.isArray(g.pairs))  g.pairs        = [];   // kept for pair-slot count tracking
+    if (g.pairs.length > 99)      g.pairs        = g.pairs.slice(0, 99);   // same cap as the pair count
     if (!Array.isArray(g.goals))  g.goals        = [];   // species-level breeding goals
     g.goals = g.goals.filter(gl => gl && typeof gl === 'object').map(gl => ({ bl: _validBloodline(gl.bl), ph: _validPhenotype(sp, gl.ph) }));
     if (!isObj(g.phenoWeights))   g.phenoWeights = {};
     if (!isObj(g.blPriority))     g.blPriority   = {};
     if (!STATS.includes(g.breedOutStat)) g.breedOutStat = 'VIG';
-    if (g.reserveTarget  === undefined) g.reserveTarget = 0;
-    if (g.statGoal       === undefined) g.statGoal      = 60;
+    // Both are written into the page as numbers: a whole number is clamped to 0..999, anything else becomes the default
+    g.reserveTarget = _clampInt(g.reserveTarget, 0, 999, 0);
+    g.statGoal      = _clampInt(g.statGoal,      0, 999, 60);
+    // Star weights are whole numbers in -3..3; a larger number from a file would reach '★'.repeat(), anything else is 0
+    for (const m of [g.phenoWeights, g.blPriority]) for (const k of Object.keys(m)) m[k] = _clampInt(m[k], -3, 3, 0);
     // Default: Unstable is always a breeding priority (value 2 = ★★) unless user overrides
     if (!g.blPriority.Unstable) g.blPriority.Unstable = 2;
     const n = pairCounts[sp] || cfg.defaultPairs;
@@ -2767,13 +2835,13 @@ function renderSuggestions(sp) {
   const rCol = s.currentReserve >= s.reserveTarget ? 'var(--grn)' : 'var(--yel)';
   html += `<div style="font-size:11px;color:#aaa;margin-bottom:8px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
     <span>🔶 Reserve: <span style="color:${rCol};font-weight:bold">${s.currentReserve}</span>
-    <span style="color:#555"> / ${s.reserveTarget}</span>
+    <span style="color:#555"> / ${$h(s.reserveTarget)}</span>
     <span style="font-size:10px;margin-left:8px;display:inline-flex;align-items:center;gap:4px">
       Target:
-      <button onclick="updateReserveTarget('${$esc(sp)}',${s.reserveTarget - 1})"
+      <button onclick="updateReserveTarget('${$esc(sp)}',${Number(s.reserveTarget) - 1})"
         style="background:none;border:1px solid var(--bdr);color:var(--wht);border-radius:3px;width:18px;height:18px;cursor:pointer;line-height:1;font-size:13px;padding:0">−</button>
-      <span style="color:var(--wht);font-weight:bold;min-width:16px;text-align:center">${s.reserveTarget}</span>
-      <button onclick="updateReserveTarget('${$esc(sp)}',${s.reserveTarget + 1})"
+      <span style="color:var(--wht);font-weight:bold;min-width:16px;text-align:center">${$h(s.reserveTarget)}</span>
+      <button onclick="updateReserveTarget('${$esc(sp)}',${Number(s.reserveTarget) + 1})"
         style="background:none;border:1px solid var(--bdr);color:var(--wht);border-radius:3px;width:18px;height:18px;cursor:pointer;line-height:1;font-size:13px;padding:0">+</button>
     </span></span>
   </div>`;
@@ -2809,7 +2877,7 @@ function renderSuggestions(sp) {
       const meetsStatGoal = tot >= s.statGoal;
       const tags = [
         blStars ? `<span style="color:${blCol}">${$h(animal.bl)} ${blStars}</span>` : '',
-        phStars ? `<span style="color:${phCol}">${phenoDisplay(sp, animal.ph) || animal.ph} ${phStars}</span>` : '',
+        phStars ? `<span style="color:${phCol}">${$h(phenoDisplay(sp, animal.ph) || animal.ph)} ${phStars}</span>` : '',
         animal.bl === 'Unstable' && !blStars ? `<span style="color:${blCol}">Unstable ★(breed)</span>` : '',
         !meetsStatGoal ? `<span style="color:#888">below stat goal (${tot}/${s.statGoal})</span>` : '',
       ].filter(Boolean).join(' · ');
@@ -2856,7 +2924,7 @@ function renderSuggestions(sp) {
   if (s.achievedGoals.length) {
     html += `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--grn);margin:8px 0 4px">✓ Goals achieved</div>`;
     s.achievedGoals.forEach(({ goalIdx, goal, animal }) => {
-      const goalLabel = `Goal ${goalIdx + 1}: ${goal.bl || 'any bl'} × ${goal.ph || 'any ph'}`;
+      const goalLabel = `Goal ${goalIdx + 1}: ${$h(goal.bl || 'any bl')} × ${$h(goal.ph || 'any ph')}`;
       html += `<div class="suggestion-row" style="background:rgba(0,204,85,.06);border:1px solid #0e3a1e;border-radius:4px;padding:6px 10px;margin-bottom:4px;">
         <span class="sug-badge" style="color:var(--grn)">✓ ${goalLabel}</span>
         <div class="sug-animal"><span class="view-name-link" onclick="viewAnimal(${animal.id})">${$h(animal.name)}</span> is a bred match
@@ -2888,7 +2956,7 @@ function renderSuggestions(sp) {
   if (s.diversityWarning) {
     html += `<div class="suggestion-row" style="background:rgba(255,170,0,.06);border:1px solid #4a3200;border-radius:4px;padding:6px 10px;margin:8px 0 4px;">
       <span class="sug-badge" style="color:var(--tmp)">⚡ Diversity</span>
-      <div class="sug-animal"><span class="sug-reason" style="color:var(--tmp)">${s.diversityWarning}</span></div>
+      <div class="sug-animal"><span class="sug-reason" style="color:var(--tmp)">${$h(s.diversityWarning)}</span></div>
     </div>`;
   }
 
@@ -3164,7 +3232,7 @@ function updateSpeciesGoal(sp, idx, field, val) {
 
 function updateStatGoal(sp, val) {
   initGoals();
-  goalsMap[sp].statGoal = Math.max(0, parseInt(val) || 0);
+  goalsMap[sp].statGoal = _clampInt(parseInt(val), 0, 999, 0);   // same range as initGoals()
   saveGoals(); renderGoals();
 }
 
@@ -3187,7 +3255,7 @@ function updateReserveTarget(sp, val) {
     val = parseInt($id('entry-reserve-target')?.value) || 0;
   }
   initGoals();
-  goalsMap[sp].reserveTarget = Math.max(0, parseInt(val) || 0);
+  goalsMap[sp].reserveTarget = _clampInt(parseInt(val), 0, 999, 0);   // same range as initGoals()
   saveGoals();
   renderGoals();
 }
@@ -3611,7 +3679,7 @@ function updateParentDatalist() {
     .map(a => {
       const spId = a.spId ? formatSpId(a.sp, a.spId) : '';
       const icon  = a.status === 'Dead' ? '🪦 ' : a.status === 'Station' ? '🛸 ' : '';
-      const label = `${icon}${spId ? spId + ' · ' : ''}${$h(a.name)}`;
+      const label = `${icon}${spId ? $h(spId) + ' · ' : ''}${$h(a.name)}`;
       return `<option value="${$h(a.name)}">${label}</option>`;
     }).join('');
 }
@@ -3633,7 +3701,7 @@ function onParentInput(n) {
     div.innerHTML = `<span style="color:var(--dim);font-style:italic">? Unknown parent — wild-caught or untracked</span>`;
     div.classList.add('show');
   } else if (error) {
-    div.innerHTML = `<span style="color:var(--red)">⚠ ${error}</span>`;
+    div.innerHTML = `<span style="color:var(--red)">⚠ ${$h(error)}</span>`;   // the message repeats the typed or loaded parent text
     div.classList.add('show');
   } else if (parent) {
     const bo = getBreedOut(sp);
@@ -3759,10 +3827,10 @@ function renderLog() {
     return;
   }
   list.innerHTML = filtered.map(e => {
-    const typeLabel = { add:'Added', edit:'Edited', status:'Status', pair:'Pair', delete:'Deleted', suggestion:'Suggestion' }[e.type] || e.type;
+    const typeLabel = { add:'Added', edit:'Edited', status:'Status', pair:'Pair', breed:'Bred', delete:'Deleted', suggestion:'Suggestion' }[e.type] || e.type;
     return `<div class="log-entry">
       <span class="log-entry-time">${fmtLogTime(e.ts)}</span>
-      <span class="log-entry-type log-type-${e.type}">${typeLabel}</span>
+      <span class="log-entry-type log-type-${$h(e.type)}">${$h(typeLabel)}</span>
       <span class="log-entry-msg">${_linkifyLogMsg(e.msg)}</span>
     </div>`;
   }).join('');
@@ -3913,7 +3981,15 @@ function saveAnimal() {
   if (editingId) {
     id = editingId;
     const existing = animals.find(a => a.id === editingId);
-    animalSpId = existing?.spId ?? getNextSpId(sp);
+    if (existing && existing.sp !== sp) {
+      // Species changed (for example an unknown species fixed): keep the ID only if the new species does not use it,
+      // and move that species' counter past it so it is not handed out again
+      const free = existing.spId > 0 && !animals.some(a => a !== existing && a.sp === sp && a.spId === existing.spId);
+      if (free) {
+        animalSpId = existing.spId;
+        if (Object.hasOwn(SPECIES_DATA, sp)) { const sh = getShort(sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, animalSpId + 1); }
+      } else animalSpId = getNextSpId(sp);
+    } else animalSpId = existing?.spId ?? getNextSpId(sp);
   } else {
     id = Date.now() + Math.random();
     animalSpId = getNextSpId(sp);
@@ -4417,11 +4493,11 @@ function buildPairAssignHTML(animal, suggestions, sel) {
     suggMsg = `<span class="pa-sugg-bad">▼ ${sel.delta} score</span> vs current (no upgrade, but slot available)`;
   }
   const spShort = SPECIES_DATA[sel.sp]?.short || sel.sp;
-  const suggLine = `💡 Best match: <strong>${spShort} · Pair ${sel.pairIdx + 1}</strong> &nbsp; ${suggMsg}`;
+  const suggLine = `💡 Best match: <strong>${$h(spShort)} · Pair ${sel.pairIdx + 1}</strong> &nbsp; ${suggMsg}`;
 
   // Species dropdown
   const spOpts = compatSp.map(sp =>
-    `<option value="${sp}"${sp === sel.sp ? ' selected' : ''}>${SPECIES_DATA[sp]?.short || sp} – ${sp}</option>`
+    `<option value="${$h(sp)}"${sp === sel.sp ? ' selected' : ''}>${$h(SPECIES_DATA[sp]?.short || sp)} – ${$h(sp)}</option>`
   ).join('');
 
   // Pair dropdown (for selected species)
@@ -4471,7 +4547,7 @@ function paOccupantHtml(slot) {
   const curStatus = cur ? (STATUS_ICON[cur.status] || '') + ' ' + (cur.status || '') : '';
   return `<div class="pa-occupant">
     <div style="font-size:11px;color:var(--dim);">Current occupant in this slot:</div>
-    <div class="pa-occ-name">${slot.curName} <span style="color:#888;font-size:10px">(${curTotal} pts · ${curStatus})</span></div>
+    <div class="pa-occ-name">${$h(slot.curName)} <span style="color:#888;font-size:10px">(${curTotal} pts · ${$h(curStatus)})</span></div>
     <div style="font-size:11px;color:#aaa;margin-bottom:6px;">What to do with the displaced animal?</div>
     <div class="pa-radio-group">
       <label><input type="radio" name="pa-displace" value="none" checked> Keep their current status (just remove from pair)</label>
@@ -5471,19 +5547,25 @@ function importCSV(e) {
     const preNames = new Set(animals.map(a => `${a.sp}|${a.name}`)); // herd as it was before this import
     const seen = new Map(animals.map(a => [`${a.sp}#${a.spId}`, a.name]));
     // Reserve every ID already used (existing herd + this file) so auto-assigned IDs never collide
-    animals.forEach(a => { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, (a.spId || 0) + 1); });
+    _reserveSpIds();
     const isSpecies = sp => Object.hasOwn(SPECIES_DATA, sp);
     const parseId = (v, sp) => {
       const m = v.match(/^([A-Za-z]+)0*(\d+)$/);
       const n = m ? parseInt(m[2]) : 0;
-      return (m && n > 0 && m[1].toUpperCase() === getShort(sp)) ? n : null;
+      // raw is the ID as written, for the name-prefix rewrite (extra leading zeros, numbers too big to round-trip)
+      return (m && n > 0 && m[1].toUpperCase() === getShort(sp)) ? { n, raw: m[0] } : null;
     };
     const iSp = header.indexOf('species'), iId = header.indexOf('spId');
+    // IDs the file claims per species: a row that needs a fresh ID must not take one a later row keeps
+    const csvIds = new Map();
     rows.slice(1).forEach(cols => {
       const sp = (cols[iSp] || '').trim();
       if (!isSpecies(sp)) return;
-      const n = parseId((cols[iId] || '').trim(), sp);
-      if (n !== null) { const sh = getShort(sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, n + 1); }
+      const id = parseId((cols[iId] || '').trim(), sp);
+      if (id === null || id.n > MAX_SP_ID) return;
+      const sh = getShort(sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, id.n + 1);
+      if (!csvIds.has(sp)) csvIds.set(sp, new Set());
+      csvIds.get(sp).add(id.n);
     });
     rows.slice(1).forEach(cols => {
       // Same length limits as the JSON load path; a leading ' added by exportCSV is removed again
@@ -5502,18 +5584,21 @@ function importCSV(e) {
       // Names double as parent links, so an animal with this exact name (in the herd or earlier in this file) is the same animal
       if (name && preNames.has(`${sp}|${name}`)) { dupes++; return; }
 
-      // Keep the CSV's own ID (e.g. "DR123" -> 123) when it matches the species and is free
+      // Keep the CSV's own ID (e.g. "DR123" -> 123) when it matches the species, is free and is not above MAX_SP_ID.
+      // An ID above the limit still counts as the CSV's ID, so the name prefix below is rewritten
       const csvId = parseId(get('spId'), sp);
-      let spId = csvId;
+      let spId = csvId !== null && csvId.n <= MAX_SP_ID ? csvId.n : null;
       if (spId !== null && seen.has(`${sp}#${spId}`)) {
         // Same ID + same name = this animal is already in the herd; same ID but a different animal = give it a fresh ID
         if (seen.get(`${sp}#${spId}`) === name) { dupes++; return; }
         spId = null;
       }
-      if (spId === null) spId = getNextSpId(sp);
-      // A reassigned ID must not leave the old ID at the start of the name, or parent links could point at another animal
-      if (csvId !== null && spId !== csvId && name.startsWith(formatSpId(sp, csvId))) {
-        name = formatSpId(sp, spId) + name.slice(formatSpId(sp, csvId).length);
+      if (spId === null) spId = getNextSpId(sp, csvIds.get(sp));
+      // A reassigned ID must not leave the old ID at the start of the name, or parent links could point at another animal.
+      // The old ID is matched as written and as the app formats it; a digit right after it means a different ID
+      if (csvId !== null && spId !== csvId.n) {
+        const old = [csvId.raw, formatSpId(sp, csvId.n)].find(p => name.startsWith(p) && !/\d/.test(name.charAt(p.length)));
+        if (old) name = formatSpId(sp, spId) + name.slice(old.length);
       }
 
       const sex    = get('sex').toUpperCase();
@@ -5842,7 +5927,7 @@ function planMountImport(text) {
  */
 function applyMountImport(plan, choices) {
   // Reserve every ID in use so new ones never collide
-  animals.forEach(a => { const sh = getShort(a.sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, (a.spId || 0) + 1); });
+  _reserveSpIds();
   const byName = new Map(animals.map(a => [a.name, a]));
   const created = [];
   plan.added.forEach((row, i) => {

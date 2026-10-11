@@ -584,6 +584,17 @@ const advice = await ev(`(() => { try {
   panel.classList.remove('show'); a.status = '?'; Object.assign(slot, saved); save(); resetFormUI();
   return { before, after, still, freed, error: '' }; } catch (e) { return { error: e.message }; } })()`);
 check('advice panel frees the pair slot and drops the buttons after a status change', !advice.error && advice.before > 0 && advice.after === 0 && advice.still && advice.freed, JSON.stringify(advice));
+// Dialog buttons (showConfirm, import preview) must not fall back to the browser's default button look
+const dialogBtns = await ev(`(() => { try {
+  showConfirm('Smoke test', () => {});
+  const css = el => { const s = getComputedStyle(el); return { bg: s.backgroundColor, pad: s.padding }; };
+  const plain = document.createElement('button'), ref = document.createElement('button'); ref.className = 'btn';
+  document.body.append(plain, ref);
+  const yes = css(document.getElementById('_cfm_yes')), no = css(document.getElementById('_cfm_no')), def = css(plain), btn = css(ref);
+  plain.remove(); ref.remove(); document.getElementById('_cfm_no').click();
+  return { yes, no, def, btn, closed: !document.getElementById('_cfm_yes'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+const styledBtn = b => !!b && b.bg !== 'rgba(0, 0, 0, 0)' && b.bg !== dialogBtns.def?.bg && !/^0px( 0px)*$/.test(b.pad) && b.pad !== dialogBtns.def?.pad;
+check('dialog buttons (.btn-primary, .btn-secondary) have the app button style, not the browser default', !dialogBtns.error && styledBtn(dialogBtns.yes) && styledBtn(dialogBtns.no) && dialogBtns.yes.bg === dialogBtns.btn.bg && dialogBtns.closed, JSON.stringify(dialogBtns));
 
 // ── #9: hardening of shared herd files ──────────────────────────────────────────────
 await ev(`window.__snap9 = JSON.stringify(getAllData()); true`);
@@ -653,6 +664,129 @@ check('opening a file without a herd list adopts nothing and changes nothing', !
 check('legacy phenotype labels and bloodline case are migrated, a v4 file with bad goals loads', !legacy.error && legacy.ph === 'Geothermal P2' && legacy.bl === 'Wild' && legacy.goalPh === 'Geothermal P3' && legacy.weightKey === 'Geothermal P2' && legacy.v4goals === '[{"bl":"Wild","ph":""}]', JSON.stringify(legacy));
 const csvGuard = await ev(`JSON.stringify([csvField('\\t=1+1'), csvField('\\r=1'), csvField('=1'), csvField('plain')])`);
 check('CSV export guards a leading tab or CR like a formula', csvGuard === JSON.stringify(['"\'\t=1+1"', '"\'\r=1"', '"\'=1"', '"plain"']), csvGuard);
+// Fields from a shared file that reach the page as numbers, attributes or text (v0.31b review)
+const pwn8 = k => `<img src=x id=pwn8${k} onerror="window.__pwned8${k}=1">`;
+await ev(`window.__mk8 = (id, spId, sp, sex, bl, name, extra = {}) => ({ id, spId, sp, sex, bl, ph: '', gen: 1, p1: '', p2: '', stats: {}, name, status: '?', notes: '', ...extra }); true`);
+const goalNums = await ev(`(async () => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild'), __mk8(2, 2, 'Moa', 'F', 'Alpha', 'BM02 F0-Alpha')],
+    goals: { Moa: { goals: [], reserveTarget: ${JSON.stringify(pwn8('a'))}, statGoal: 'x' }, Buffalo: { goals: [], reserveTarget: 5000, statGoal: 1234 }, Pig: { goals: [], statGoal: -5 } } }); migrateMemory();
+  showTab('goals'); renderGoals();
+  await new Promise(r => setTimeout(r, 150));
+  const n = sp => [goalsMap[sp].reserveTarget, goalsMap[sp].statGoal].join();
+  return { moa: n('Moa'), buffalo: n('Buffalo'), pig: n('Pig'), el: !!document.getElementById('pwn8a'), pwned: !!window.__pwned8a, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a reserve target or stat goal from a file becomes a number in range and never HTML', !goalNums.error && goalNums.moa === '0,60' && goalNums.buffalo === '999,999' && goalNums.pig === '0,0' && !goalNums.el && !goalNums.pwned, JSON.stringify(goalNums));
+const parentErr = await ev(`(async () => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild', { p1: ${JSON.stringify(pwn8('b'))} })] }); migrateMemory();
+  showTab('entry'); editAnimal(1);
+  const shown = document.getElementById('pc1').textContent, el = !!document.querySelector('#pc1 img') || !!document.getElementById('pwn8b');
+  await new Promise(r => setTimeout(r, 150));
+  editingId = null; resetFormUI();
+  const s = document.getElementById('f-species'); s.value = 'Dune Raptor'; onSpeciesChange();
+  return { shown, el, pwned: !!window.__pwned8b, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a parent name from a file shows as text in the not-found message', !parentErr.error && !parentErr.el && !parentErr.pwned && /<img/.test(parentErr.shown), JSON.stringify(parentErr));
+const SVG8 = '<svg/onload=alert()>';   // 20 characters, the most the status field keeps
+const occupant = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild', { status: ${JSON.stringify(SVG8)} })] }); migrateMemory();
+  const a = animals[0], loaded = a.status;
+  const html = paOccupantHtml({ isEmpty: false, curName: ${JSON.stringify(pwn8('c'))}, curAnimal: null });
+  a.status = ${JSON.stringify(SVG8)};   // bypass validation: the panel itself must escape
+  const html2 = paOccupantHtml({ isEmpty: false, curName: a.name, curAnimal: a });
+  a.status = '?';
+  return { loaded, escaped: html.includes('&lt;img'), raw: html.includes('<img'), statusEscaped: html2.includes('&lt;svg'), statusRaw: html2.includes('<svg'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a file status is a known status, and the pair placement panel shows occupant name and status as text', !occupant.error && occupant.loaded === '?' && occupant.escaped && !occupant.raw && occupant.statusEscaped && !occupant.statusRaw, JSON.stringify(occupant));
+const logTypes = await ev(`(() => { try {
+  applyData({ version: 7, herd: [], logEntries: [{ ts: 1, msg: 'x', type: '"onclick=alert()//' }, { ts: 2, msg: 'y', type: '<svg/onload=1>' }, { ts: 3, msg: 'z', type: 'breed' }] }); migrateMemory();
+  showTab('log'); setLogFilter('all', document.querySelector('[data-log-filter="all"]')); renderLog();
+  const list = document.getElementById('log-list');
+  return { types: logEntries.map(e => e.type).join(), entries: list.querySelectorAll('.log-entry').length, onclick: [...list.querySelectorAll('*')].some(el => el.hasAttribute('onclick')),
+    svg: !!list.querySelector('svg'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('log entry types from a file are limited to known types and stay out of the markup', !logTypes.error && logTypes.types === 'add,add,breed' && logTypes.entries === 3 && !logTypes.onclick && !logTypes.svg, JSON.stringify(logTypes));
+const protoSp = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'constructor', 'M', 'Wild', 'Ctor'), __mk8(2, 1, '__proto__', 'F', 'Wild', 'Proto')] }); migrateMemory();
+  showTab('herd'); setFilter('status', 'all', null); renderHerd();
+  const flags = [...document.querySelectorAll('#herd-tbody .herd-flag')].filter(f => f.textContent === 'unknown species').length;
+  let viewErr = '';
+  try { viewAnimal(1); closeViewPanel(); viewAnimal(2); closeViewPanel(); } catch (e) { viewErr = e.message; }
+  return { flags, viewErr, noMembers: SPECIES_DATA.constructor === undefined && SPECIES_DATA.__proto__ === undefined && CROSS_BREEDS.constructor === undefined, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a species named like an Object member is flagged as unknown and opens in the viewer', !protoSp.error && protoSp.flags === 2 && !protoSp.viewErr && protoSp.noMembers, JSON.stringify(protoSp));
+const stars = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild'), __mk8(2, 2, 'Moa', 'F', 'Bold', 'BM02 F0-Bold')],
+    pairs: { Moa: [{ m: 'BM01 M0-Wild', f: 'BM02 F0-Bold' }] }, pairCounts: { Moa: 1 },
+    goals: { Moa: { goals: [], blPriority: { Wild: 1e9, Alpha: -7, Bold: 2.4 }, phenoWeights: { x: 'abc' } } } }); migrateMemory();
+  const g = goalsMap.Moa;
+  showTab('pairs'); renderPairs();
+  return { bl: [g.blPriority.Wild, g.blPriority.Alpha, g.blPriority.Bold].join(), x: g.phenoWeights.x, text: document.getElementById('tab-pairs').textContent.length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('star weights from a file are whole numbers from -3 to 3, anything else is 0', !stars.error && stars.bl === '3,-3,0' && stars.x === 0 && stars.text < 1e6, JSON.stringify(stars));
+const counts = await ev(`(() => { try {
+  const moaPairs = Array.from({ length: 120 }, () => ({ m: '', f: '' })); moaPairs[109] = { m: 'BM05 M0-Wild', f: '' };   // slot 110
+  applyData({ version: 7, herd: [__mk8(5, 5, 'Moa', 'M', 'Wild', 'BM05 M0-Wild', { status: 'Breed' })], pairs: { Moa: moaPairs },
+    pairCounts: { Moa: 1e6, Buffalo: 'abc', Pig: 5.5, Tusker: 0 }, goals: { Slinker: { goals: [], pairs: Array.from({ length: 150 }, () => ({ bl: '', ph: '' })) } } });
+  migrateMemory(); initPairs();
+  return { moa: pairCounts.Moa, got: [pairCounts.Buffalo, pairCounts.Pig].join(), defaults: [SPECIES_DATA.Buffalo.defaultPairs, SPECIES_DATA.Pig.defaultPairs].join(),
+    tusker: pairCounts.Tusker, slots: pairsMap.Moa.length, slot110Gone: !pairsMap.Moa.some(p => p.m === 'BM05 M0-Wild'), slot110Status: animals[0].status,
+    goalSlots: goalsMap.Moa.pairs.length, slinkerGoalSlots: goalsMap.Slinker.pairs.length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('pair counts from a file are clamped to 0..99, and slot lists are cut to match', !counts.error && counts.moa === 99 && counts.got === counts.defaults && counts.tusker === 0 && counts.slots === 99 && counts.slot110Gone && counts.slot110Status === '?' && counts.goalSlots === 99 && counts.slinkerGoalSlots === 99, JSON.stringify(counts));
+const uiLimits = await ev(`(() => { try {
+  applyData({ version: 7, herd: [], pairCounts: { Moa: 99 } }); migrateMemory();
+  addPairSlot('Moa'); const afterAdd = pairCounts.Moa;
+  updateReserveTarget('Moa', 5000); const target = goalsMap.Moa.reserveTarget;
+  updateStatGoal('Moa', 5000); const statGoal = goalsMap.Moa.statGoal;
+  return { afterAdd, target, statGoal, toast: document.getElementById('toast').textContent, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the UI cannot add a 100th pair slot or set a reserve target or stat goal above 999', !uiLimits.error && uiLimits.afterAdd === 99 && uiLimits.target === 999 && uiLimits.statGoal === 999 && /maximum of 99/.test(uiLimits.toast), JSON.stringify(uiLimits));
+const spIds = await ev(`(() => { try {
+  applyData({ version: 7, nextSpAid: { PG: 'x', BM: -4, BF: 7, DR: 1e300 }, herd: [
+    __mk8(1, 0, 'Pig', 'M', 'Wild', 'No Id 1'), __mk8(2, 0, 'Pig', 'F', 'Wild', 'No Id 2'),
+    __mk8(3, 2.5, 'Moa', 'M', 'Wild', 'Half Id'), __mk8(4, -1, 'Moa', 'F', 'Wild', 'Negative Id'),
+    __mk8(5, 1e300, 'Dune Raptor', 'M', 'Wild', 'Huge Id'), __mk8(6, 1000000, 'Dune Raptor', 'F', 'Wild', 'Big Id')] }); migrateMemory();
+  const ids = sp => animals.filter(a => a.sp === sp).map(a => String(a.spId));
+  return { pigs: ids('Pig'), moas: ids('Moa'), raptors: ids('Dune Raptor'), bf: nextSpAid.BF, dr: nextSpAid.DR, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+const wholeIds = list => Array.isArray(list) && list.length === 2 && list.every(n => /^[1-9]\d{0,5}$/.test(n)) && list[0] !== list[1];
+check('ID counters and IDs from a file are whole numbers from 1 to 999999, so new IDs never repeat', !spIds.error && wholeIds(spIds.pigs) && wholeIds(spIds.moas) && spIds.raptors.join() === '1,2' && spIds.bf === 7 && spIds.dr === 3, JSON.stringify(spIds));
+const merged = await ev(`(() => { try {
+  applyData({ version: 6, herd: [], goals: { 'Geothermal Raptor': { goals: [], phenoWeights: { 'Swamp P2': 2, 'Geothermal P2': 3 } } },
+    phenoStats: { 'Geothermal Raptor': { 'Swamp P2': { tamed: 1, bred: 0 }, 'Geothermal P2': { tamed: 2, bred: 1 } } } }); migrateMemory();
+  const w = goalsMap['Geothermal Raptor'].phenoWeights, ps = phenoStats['Geothermal Raptor'];
+  return { weight: w['Geothermal P2'], stats: JSON.stringify(ps['Geothermal P2']), old: Object.hasOwn(w, 'Swamp P2') || Object.hasOwn(ps, 'Swamp P2'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a v6 file with both phenotype labels keeps the new weight and adds the sightings together', !merged.error && merged.weight === 3 && merged.stats === '{"tamed":3,"bred":1}' && !merged.old, JSON.stringify(merged));
+const reserved = await ev(`(() => { try {
+  applyData({ version: 7, nextSpAid: {}, herd: [__mk8(1, 1, 'Dune Raptor', 'M', 'Wild', 'DR01'), __mk8(2, 2, 'Dune Raptor', 'F', 'Wild', 'DR02'),
+    __mk8(3, 500, 'Dragon', 'M', 'Wild', 'Stray 1'), __mk8(4, 400, 'Moabc', 'F', 'Wild', 'Stray 2')] }); migrateMemory();
+  return { dr: nextSpAid.DR, mo: nextSpAid.MO ?? null, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('an unknown species does not push the ID counter of a real species with the same code', !reserved.error && reserved.dr === 3 && reserved.mo === null, JSON.stringify(reserved));
+// The unknown-species badge tells the player to fix the species in the edit form; the animal keeps its ID, which must not be handed out again
+const speciesFix = await ev(`(() => { try {
+  const s = document.getElementById('f-species');
+  const fix = (id, sp) => { editAnimal(id); s.value = sp; onSpeciesChange(); saveAnimal(); return animals.find(a => a.id === id).spId; };
+  const ids = sp => animals.filter(a => a.sp === sp).map(a => a.spId).sort((x, y) => x - y).join();
+  showTab('entry');
+  // The ID is free in the new species: kept, and the counter moves past it
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Hyena', 'M', 'Wild', 'HY01'), __mk8(2, 2, 'Hyena', 'F', 'Wild', 'HY02'), __mk8(3, 3, 'hyena', 'M', 'Wild', 'Lowercase')] }); migrateMemory();
+  const kept = fix(3, 'Hyena'), next = getNextSpId('Hyena');
+  // The ID is taken in the new species: a fresh one
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Hyena', 'M', 'Wild', 'HY01'), __mk8(2, 2, 'Hyena', 'F', 'Wild', 'HY02'), __mk8(3, 2, 'hyena', 'M', 'Wild', 'Lowercase')] }); migrateMemory();
+  const collided = fix(3, 'Hyena'), hyenas = ids('Hyena');
+  // Known species to known species
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild'), __mk8(2, 1, 'Buffalo', 'F', 'Wild', 'BF01 F0-Wild')] }); migrateMemory();
+  const moved = fix(2, 'Moa'), moas = ids('Moa');
+  editingId = null; resetFormUI(); s.value = 'Dune Raptor'; onSpeciesChange();
+  return { kept, next, collided, hyenas, moved, moas, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('changing the species in the edit form keeps the ID only if the new species does not use it', !speciesFix.error && speciesFix.kept === 3 && speciesFix.next === 4
+  && speciesFix.collided === 3 && speciesFix.hyenas === '1,2,3' && speciesFix.moved === 2 && speciesFix.moas === '1,2', JSON.stringify(speciesFix));
+const idLimit = await ev(`(() => { try {
+  applyData({ version: 7, nextSpAid: { BM: 999999 }, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01'), __mk8(2, 3, 'Moa', 'F', 'Wild', 'BM03'), __mk8(3, 999999, 'Moa', 'M', 'Wild', 'BM999999')] }); migrateMemory();
+  const peek = peekNextSpId('Moa');
+  return { peek, next: getNextSpId('Moa'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+await ev(`applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 M0-Wild'), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 F0-Wild')] }); migrateMemory(); true`);
+const bigCsv = await importText('spId,name,species,sex,bloodline\nBM1234567,BM1234567 M30-Wild,Moa,M,Wild\nBM0001234568,BM0001234568 F30-Wild,Moa,F,Wild\nBM99999999999999999999,BM99999999999999999999 M30-Bold,Moa,M,Bold');
+const csvBig = await ev(`animals.filter(x => / [MF]30-/.test(x.name)).map(a => a.spId + ':' + a.name)`);
+check('IDs stay in 1..999999: a full counter hands out the lowest free ID (also in the preview), a larger CSV ID gets a fresh ID and name prefix', !idLimit.error && idLimit.peek === 2 && idLimit.next === 2
+  && JSON.stringify(csvBig) === JSON.stringify(['3:BM03 M30-Wild', '4:BM04 F30-Wild', '5:BM05 M30-Bold']), JSON.stringify({ idLimit, csvBig, msg: bigCsv.msg }));
+// With the counter past the limit, a CSV row without an ID must not take an ID a later row keeps, or that row would be renamed and parent links lost
+await ev(`applyData({ version: 7, nextSpAid: { BM: 999999 }, herd: [__mk8(1, 1, 'Moa', 'M', 'Hardy', 'BM01 M0-Hardy'), __mk8(2, 999999, 'Moa', 'F', 'Stout', 'BM999999 F0-Stout')] }); migrateMemory(); true`);
+const laterCsv = await importText('spId,name,species,sex,bloodline,parent1\n,,Moa,M,Wild,\nBM02,BM02 F30-Alpha,Moa,F,Alpha,\nBM03,BM03 M30-Bold,Moa,M,Bold,BM02 F30-Alpha');
+const later = await ev(`(() => { const by = bl => animals.find(a => a.bl === bl) || {}; const noId = by('Wild'), two = by('Alpha'), three = by('Bold');
+  return { noId: noId.spId, two: two.spId + ':' + two.name, three: three.spId + ':' + three.name, parentIsTwo: animals.find(a => a.name === three.p1) === two }; })()`);
+check('a CSV row without an ID never takes an ID that a later row in the file keeps', later.noId === 4 && later.two === '2:BM02 F30-Alpha' && later.three === '3:BM03 M30-Bold' && later.parentIsTwo, JSON.stringify({ later, msg: laterCsv.msg }));
 await ev(`applyData(JSON.parse(window.__snap9)); migrateMemory(); saveAndRefreshFull(); true`);
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
