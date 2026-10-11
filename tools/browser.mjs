@@ -55,7 +55,7 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
 
   // Wait for the port file, then for a page target (the first /json reply can come before the page exists)
   let pageTarget, lastErr = '', targets = [];
-  for (let i = 0; i < 75 && !pageTarget; i++) {
+  for (let i = 0; i < 150 && !pageTarget; i++) {   // up to 30 s: a cold CI runner once needed more than 15
     try {
       const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0].trim();
       targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
