@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.31d – New address
+**2026-10-11**
+
+Implements #34.
+
+### Changes
+- The app now lives at https://rnk-gaming.github.io/icarus and the repository at github.com/rnk-gaming/icarus (#34)
+- Feedback links, README and issue templates point at the new address
+- The old address shows a page that lets you download browser-stored data as herd_data.json before you move
+
+---
+
 ## v0.31c – Feedback links and unique animal IDs
 **2026-10-11**
 

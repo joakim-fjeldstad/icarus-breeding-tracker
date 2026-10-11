@@ -7,7 +7,7 @@ labels: bug
 
 ## Version
 
-The version shown in the app header (for example v0.31c):
+The version shown in the app header (for example v0.31d):
 
 ## Browser
 
