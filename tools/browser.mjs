@@ -54,15 +54,18 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   chrome.on('exit', code => { if (!finished) fail(`Browser exited unexpectedly (code ${code}): ${CHROME}`); });
 
   // Wait for the port file, then for a page target (the first /json reply can come before the page exists)
-  let pageTarget;
+  let pageTarget, lastErr = '', targets = [];
   for (let i = 0; i < 75 && !pageTarget; i++) {
     try {
       const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0].trim();
-      pageTarget = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t => t.type === 'page');
-    } catch { /* browser not ready yet */ }
+      targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+      pageTarget = targets.find(t => t.type === 'page');
+    } catch (e) { lastErr = e.message; /* browser not ready yet */ }
     if (!pageTarget) await sleep(200);
   }
-  if (!pageTarget) fail(`Browser did not start: ${CHROME}`);
+  // Say what was seen, so a failure on another machine or in CI can be read from the log
+  if (!pageTarget) fail(`Browser did not start: ${CHROME} (port file ${existsSync(join(profile, 'DevToolsActivePort')) ? 'written' : 'missing'}; `
+    + `last error: ${lastErr || 'none'}; targets: ${JSON.stringify(targets.map(t => [t.type, t.url]))})`);
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.addEventListener('open', res, { once: true }); ws.addEventListener('error', rej, { once: true }); })
     .catch(() => fail('Could not connect to the browser'));
