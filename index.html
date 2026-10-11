@@ -1562,7 +1562,7 @@ let _saveTimer  = null;
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.31d – New address';
+const APP_VERSION  = 'v0.31e – Pair slots follow animal changes';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 7;
 
@@ -1847,10 +1847,13 @@ function migrateMemory() {
     for (const k of Object.keys(m)) if (!Object.hasOwn(SPECIES_DATA, k)) { delete m[k]; dirty = true; }
   }
 
+  // First: the pair-slot rule and initGoals() size the slot lists from these counts. A 0 from an older file becomes 1 and is saved
+  if (initPairCounts()) dirty = true;
+  if (applyPairSlotRuleOnLoad()) dirty = true;
+
   // If anything changed, persist immediately so the file is up to date
   if (dirty) save();
 
-  initPairCounts();   // first: initGoals() sizes each goal's pair list from these counts
   initGoals();
 }
 
@@ -2086,30 +2089,197 @@ function adjustSightingsOnEdit(sp, oldBl, newBl, oldPh, newPh, oldIsBred, newIsB
   savePhenoStats();
 }
 
+// ── PAIR SLOT RULES ──────────────────────────────────────────────
+// Dead, On Station and Discard are statuses the player sets. An animal with one of them is never placed in a pair slot.
+// One rule for the Pairs pool, the optimiser, every way of placing an animal and the loader, so they cannot disagree (#24)
+const PAIR_BLOCKED_STATUSES = ['Dead', 'Station', 'Discard'];
+/** True if the animal can sit in a pair slot */
+function canPair(a) { return !!a && !PAIR_BLOCKED_STATUSES.includes(a.status); }
+
+/** True if the animal fits that slot: the slot's species or a cross-breed partner of it, and the slot's sex ('m' or 'f') */
+function slotFits(a, sp, sex) {
+  return !!a && Object.hasOwn(SPECIES_DATA, sp) && (a.sp === sp || (CROSS_BREEDS[sp] || []).includes(a.sp))
+    && a.sex === (sex === 'm' ? 'M' : 'F');
+}
+
+/**
+ * The animal a slot name stands for. Slots hold names, and an older file can give two animals one name. Given a slot
+ * (species and 'm' or 'f'), the twin that can be paired and fits that slot wins; then one that can be paired, as in the
+ * Pairs card, which only looks among those; then the first
+ */
+function slotAnimal(name, sp, sex) {
+  const named = animals.filter(a => a.name === name);
+  return (sp ? named.find(a => canPair(a) && slotFits(a, sp, sex)) : null) || named.find(canPair) || named[0] || null;
+}
+
+/** True if another animal with the same name can be paired and fits that slot, so the slot may be that one's */
+function twinFits(a, sp, sex) {
+  return animals.some(x => x !== a && x.name === a.name && canPair(x) && slotFits(x, sp, sex));
+}
+
+/**
+ * Give an animal a new name (a generated name changes with stats, bloodline and phenotype). Call it while the animal still
+ * carries the old name; the caller sets the new one. Pair slots point at names, so a slot follows only when this animal is
+ * the one it stands for. Parent links follow only when no other animal has the old name, because they could be that one's
+ */
+function renameAnimal(a, newName) {
+  const oldName = a?.name;
+  if (!oldName || !newName || oldName === newName) return;
+  for (const [sp, ps] of Object.entries(pairsMap)) for (const p of Array.isArray(ps) ? ps : []) for (const sex of ['m', 'f']) {
+    if (p && p[sex] === oldName && slotAnimal(oldName, sp, sex) === a) p[sex] = newName;
+  }
+  // 'Unknown' in a parent field means the parent is not known; it never points at an animal
+  if (oldName !== 'Unknown' && !animals.some(x => x !== a && x.name === oldName)) {
+    animals.forEach(o => { if (o.p1 === oldName) o.p1 = newName; if (o.p2 === oldName) o.p2 = newName; });
+  }
+}
+
+/** Clear an animal from every pair slot it occupies. Returns true if it was in one */
+function unassignFromPairs(name) {
+  let found = false;
+  for (const ps of Object.values(pairsMap)) for (const p of Array.isArray(ps) ? ps : []) {
+    if (p && p.m === name) { p.m = ''; found = true; }
+    if (p && p.f === name) { p.f = ''; found = true; }
+  }
+  return found;
+}
+
+/** Every name that sits in a pair slot, of any species */
+function pairedNames() {
+  return new Set(Object.values(pairsMap).flatMap(ps => (Array.isArray(ps) ? ps : []).flatMap(p => [p?.m, p?.f])).filter(Boolean));
+}
+
+/**
+ * Animals that have just lost a pair slot: Breed and Temp Breed become Reserve (no longer breeding, but chosen for it once),
+ * any other status is kept. A name that still sits in a slot was moved, not removed, and is left alone.
+ * Returns the number of animals whose status changed
+ */
+function releaseFromSlots(names) {
+  const paired = pairedNames();
+  let changed = 0;
+  for (const n of new Set(names)) {
+    if (!n || paired.has(n)) continue;
+    const a = slotAnimal(n);
+    if (a && (a.status === 'Breed' || a.status === 'Temp')) { a.status = 'Reserve'; changed++; }
+  }
+  return changed;
+}
+
+/**
+ * Keep the pair slots in step with an animal whose status has just changed, or that was deleted: a Dead, On Station,
+ * Discard or deleted animal loses its slot in the same step, and its status stays as the player set it. A slot stays
+ * only when another animal with the same name can be paired and fits it. Returns true if a slot was emptied
+ */
+function syncPairSlots(a, deleted = false) {
+  if (!a || (!deleted && canPair(a))) return false;
+  let emptied = false;
+  for (const [sp, ps] of Object.entries(pairsMap)) for (const p of Array.isArray(ps) ? ps : []) for (const sex of ['m', 'f']) {
+    if (p && p[sex] === a.name && !twinFits(a, sp, sex)) { p[sex] = ''; emptied = true; }
+  }
+  return emptied;
+}
+
+/**
+ * Take an animal out of every slot it no longer fits after an edit or a game import changed its species or sex.
+ * Breed and Temp Breed become Reserve. Unless quiet (the game import reports for itself), a toast and a log entry say so.
+ * Returns true if a slot was emptied
+ */
+function dropMisfitSlots(a, quiet = false) {
+  if (!a) return false;
+  const left = [];
+  for (const [sp, ps] of Object.entries(pairsMap)) (Array.isArray(ps) ? ps : []).forEach((p, idx) => {
+    for (const sex of ['m', 'f']) if (p && p[sex] === a.name && !slotFits(a, sp, sex) && !twinFits(a, sp, sex)) { p[sex] = ''; left.push(`${sp} Pair ${idx + 1}`); }
+  });
+  if (!left.length) return false;
+  const reserved = !pairedNames().has(a.name) && (a.status === 'Breed' || a.status === 'Temp');
+  if (reserved) a.status = 'Reserve';
+  if (!quiet) {
+    const msg = `${a.name} left ${left.join(', ')}: its species or sex no longer fits${reserved ? ', now 🔶 Reserve' : ''}`;
+    showToast(msg);
+    addLog(msg, 'pair');
+  }
+  return true;
+}
+
+/**
+ * Put a name in one pair slot ('' empties it), taking the animal out of any other slot first. Returns the name it displaced, or ''.
+ * Does nothing for a species this version does not know, or for an animal that cannot be paired or does not fit the slot
+ */
+function placeInSlot(sp, idx, sex, name) {
+  if (!Object.hasOwn(SPECIES_DATA, sp)) return '';
+  const a = name ? slotAnimal(name, sp, sex) : null;
+  if (name && !(canPair(a) && slotFits(a, sp, sex))) { showToast(`${name} cannot be placed in ${sp} Pair ${idx + 1}`); return ''; }
+  if (!Array.isArray(pairsMap[sp])) pairsMap[sp] = [];
+  while (pairsMap[sp].length <= idx) pairsMap[sp].push({ m: '', f: '' });
+  const slot = pairsMap[sp][idx], old = slot[sex] || '';
+  if (name && old !== name) unassignFromPairs(name);
+  slot[sex] = name;
+  return old !== name ? old : '';
+}
+
 // ── PAIR COUNTS ──────────────────────────────────────────────────
+/**
+ * Number of pair slots of a species: the stored count, from 1 to 99. Every reader goes through this, so a 0 from an
+ * older file (deletePairRow could reach it) reads as 1 in Pairs, Goals, the optimiser and the placement panels alike
+ */
+function getPairCount(sp) {
+  return _clampInt(pairCounts[sp], 1, 99, Object.hasOwn(SPECIES_DATA, sp) ? SPECIES_DATA[sp].defaultPairs : 1);
+}
+
+/** Clamp every stored count like getPairCount(). Returns true if a whole number was moved into 1..99, so the loader saves it */
 function initPairCounts() {
+  let clamped = false;
   for (const [sp, cfg] of Object.entries(SPECIES_DATA)) {
-    // A file can carry anything here, and the slot lists are grown to this number: a whole number is clamped to 0..99
-    // (0 is allowed, deletePairRow can reach it), anything else becomes the species default
+    // A file can carry anything here, and the slot lists are grown to this number: a whole number is clamped to 1..99,
+    // anything else becomes the species default. A longer slot list is cut on load (applyPairSlotRuleOnLoad)
     const v = pairCounts[sp];
-    pairCounts[sp] = _clampInt(v, 0, 99, cfg.defaultPairs);
-    // A count cut down to 99 also cuts the slot list, or animals in slots 100+ would stay paired but never show.
-    // An animal that loses its slot is no longer breeding: 'Breed' becomes '?', as when the optimiser replaces it
-    if (Number.isInteger(v) && v > 99 && Array.isArray(pairsMap[sp])) {
-      const kept = pairsMap[sp].slice(0, pairCounts[sp]), stillPaired = new Set(kept.flatMap(p => [p.m, p.f]));
-      pairsMap[sp].slice(pairCounts[sp]).forEach(p => [p.m, p.f].forEach(n => {
-        const a = n && !stillPaired.has(n) ? animals.find(x => x.name === n) : null;
-        if (a && a.status === 'Breed') a.status = '?';
-      }));
-      pairsMap[sp] = kept;
+    pairCounts[sp] = _clampInt(v, 1, 99, cfg.defaultPairs);
+    if (Number.isInteger(v) && v !== pairCounts[sp]) clamped = true;
+  }
+  return clamped;
+}
+
+/**
+ * The pair-slot rule for a loaded herd, which can come from an older version or from someone else (#24). A slot is emptied
+ * when it lies past the species' pair count (the list is cut), holds a Dead, On Station or Discard animal or a name that is
+ * no animal in the herd, holds an animal whose species or sex does not fit it, or repeats an animal already in an earlier slot.
+ * Only an animal that loses its slot here changes status: Breed and Temp Breed become Reserve, as when the player takes it
+ * out of a slot. An animal the player set to Breed without a slot keeps Breed.
+ * Runs after initPairCounts(). Returns true if anything changed, so the file is saved
+ */
+function applyPairSlotRuleOnLoad() {
+  let changed = false;
+  const lost = new Map(), seen = new Set();   // lost: name -> the animal that lost its slot; seen: animals already in a slot
+  for (const sp of Object.keys(pairsMap)) {
+    if (!Array.isArray(pairsMap[sp])) continue;
+    const n = getPairCount(sp);
+    if (pairsMap[sp].length > n) {
+      pairsMap[sp].slice(n).forEach(p => ['m', 'f'].forEach(sex => { const x = p?.[sex]; if (x) lost.set(x, slotAnimal(x, sp, sex)); }));
+      pairsMap[sp] = pairsMap[sp].slice(0, n);
+      changed = true;
+    }
+    for (const p of pairsMap[sp]) for (const sex of ['m', 'f']) {
+      const name = p[sex];
+      if (!name) continue;
+      // Two animals with one name: the one that can be paired and fits this slot is the one in it
+      const a = slotAnimal(name, sp, sex);
+      if (canPair(a) && slotFits(a, sp, sex) && !seen.has(a)) { seen.add(a); continue; }
+      if (!seen.has(a)) lost.set(name, a);   // a repeat keeps the animal in its earlier slot
+      p[sex] = '';
+      changed = true;
     }
   }
+  const paired = pairedNames();
+  for (const [name, a] of lost) {
+    if (a && !paired.has(name) && (a.status === 'Breed' || a.status === 'Temp')) { a.status = 'Reserve'; changed = true; }
+  }
+  return changed;
 }
 
 function initPairs() {
   initPairCounts();
   for (const [sp] of Object.entries(SPECIES_DATA)) {
-    const n = pairCounts[sp] || 1;
+    const n = getPairCount(sp);
     if (!pairsMap[sp]) pairsMap[sp] = [];
     while (pairsMap[sp].length < n) pairsMap[sp].push({ m:'', f:'' });
   }
@@ -2152,8 +2322,8 @@ function addPairFromTopBar() {
 
 function addPairSlot(sp) {
   // The loader caps pair counts at 99, so the UI stops there too
-  if ((pairCounts[sp] || 1) >= 99) { showToast(`${sp} already has the maximum of 99 pairs`); return; }
-  pairCounts[sp] = (pairCounts[sp] || 1) + 1;
+  if (getPairCount(sp) >= 99) { showToast(`${sp} already has the maximum of 99 pairs`); return; }
+  pairCounts[sp] = getPairCount(sp) + 1;
   if (!pairsMap[sp]) pairsMap[sp] = [];
   while (pairsMap[sp].length < pairCounts[sp]) pairsMap[sp].push({ m:'', f:'' });
   if (!goalsMap[sp]) initGoals();
@@ -2163,34 +2333,31 @@ function addPairSlot(sp) {
 }
 
 function removePairSlot(sp) {
-  const n = pairCounts[sp] || 1;
+  const n = getPairCount(sp);
   if (n <= 1) { showToast('Need at least 1 pair'); return; }
   pairCounts[sp] = n - 1;
+  // The animals in the removed slot leave it: Breed and Temp Breed become Reserve
+  const removed = (pairsMap[sp] || []).slice(pairCounts[sp]).flatMap(p => [p?.m, p?.f]);
   if (pairsMap[sp]) pairsMap[sp] = pairsMap[sp].slice(0, pairCounts[sp]);
   if (goalsMap[sp]?.pairs) goalsMap[sp].pairs = goalsMap[sp].pairs.slice(0, pairCounts[sp]);
-  save(); saveGoals(); renderPairs();
-  showToast(`Removed pair ${n} from ${sp}`);
+  const reserved = releaseFromSlots(removed);
+  save(); saveGoals(); renderHerd(); renderPairs();
+  showToast(`Removed pair ${n} from ${sp}${reserved ? ', Breed or Temp Breed set to 🔶 Reserve' : ''}`);
 }
 
 function deletePairRow(sp, idx) {
   if (!pairsMap[sp] || !pairsMap[sp][idx]) return;
   const pair = pairsMap[sp][idx];
-  // Set animals in the pair to Reserve
-  const setReserve = name => {
-    if (!name) return;
-    const a = animals.find(a => a.name === name);
-    if (a && a.status !== 'Dead' && a.status !== 'Station') {
-      a.status = 'Reserve';
-    }
-  };
-  setReserve(pair.m);
-  setReserve(pair.f);
-  // Remove the pair from the array and decrement count
+  // Remove the pair from the array and decrement count. A species keeps at least one pair: deleting the last row
+  // leaves one empty pair, as the − button does
   pairsMap[sp].splice(idx, 1);
-  pairCounts[sp] = Math.max(0, (pairCounts[sp] || 1) - 1);
+  pairCounts[sp] = Math.max(1, getPairCount(sp) - 1);
+  if (!pairsMap[sp].length) pairsMap[sp].push({ m: '', f: '' });
   if (goalsMap[sp]?.pairs) goalsMap[sp].pairs.splice(idx, 1);
+  // The two animals leave their slot: Breed and Temp Breed become Reserve, any other status is kept
+  const reserved = releaseFromSlots([pair.m, pair.f]);
   save(); saveGoals(); renderHerd(); renderPairs();
-  showToast(`Pair ${idx + 1} deleted — animals set to 🔶 Reserve`);
+  showToast(`Pair ${idx + 1} deleted${reserved ? ', Breed or Temp Breed set to 🔶 Reserve' : ''}`);
 }
 
 // ── GOALS ────────────────────────────────────────────────────────
@@ -2232,16 +2399,17 @@ function scoreForOptimize(sp, a) {
 function buildOptimizePlanForSpecies(sp, globallyAssigned) {
   initGoals();
   const g       = goalsMap[sp] || {};
-  const n       = pairCounts[sp] || 1;
+  const n       = getPairCount(sp);
   const blP     = g.blPriority  || {};
   const phW     = g.phenoWeights || {};
   const spGoals = g.goals || [];
   const statGoal = getMaxTotal(sp);
 
   const crossPartners = CROSS_BREEDS[sp] || [];
-  const ownAnimals  = animals.filter(a => a.sp === sp && !['Dead','Discard'].includes(a.status));
+  // The same animals the Pairs pool offers: an animal Pairs shows as unavailable is never proposed
+  const ownAnimals  = animals.filter(a => a.sp === sp && canPair(a));
   const crossAnimals = crossPartners.flatMap(csp =>
-    animals.filter(a => a.sp === csp && !['Dead','Discard'].includes(a.status))
+    animals.filter(a => a.sp === csp && canPair(a))
   );
   const allUsable = [...ownAnimals, ...crossAnimals];
   const males   = allUsable.filter(a => a.sex === 'M');
@@ -2526,19 +2694,14 @@ function applyOptimizeSinglePair(planIdx, pairIdx, btn) {
   const p    = plan.proposedPairs[pairIdx];
   btn.textContent = '✓ Applied'; btn.disabled = true; btn.style.opacity = '0.5';
   if (!pairsMap[plan.sp]) initPairs();
-  while (pairsMap[plan.sp].length <= pairIdx) pairsMap[plan.sp].push({ m: '', f: '' });
-  // Auto-status: revert displaced animals to Undecided
-  const _oldM = pairsMap[plan.sp][pairIdx]?.m || '';
-  const _oldF = pairsMap[plan.sp][pairIdx]?.f || '';
-  if (_oldM && _oldM !== p.m) { const _a = animals.find(x => x.name === _oldM); if (_a && _a.status === 'Breed') _a.status = '?'; }
-  if (_oldF && _oldF !== p.f) { const _a = animals.find(x => x.name === _oldF); if (_a && _a.status === 'Breed') _a.status = '?'; }
-  pairsMap[plan.sp][pairIdx].m = p.m;
-  pairsMap[plan.sp][pairIdx].f = p.f;
+  // A proposed animal that sits in another slot moves here ("⚠ in pair"); the animals it replaces leave their slot
+  const displaced = [placeInSlot(plan.sp, pairIdx, 'm', p.m), placeInSlot(plan.sp, pairIdx, 'f', p.f)];
   // Auto-status: set assigned animals to Breed
   [p.m, p.f].filter(Boolean).forEach(n => {
     const _a = animals.find(x => x.name === n);
-    if (_a && !['Dead','Station','Discard'].includes(_a.status)) _a.status = 'Breed';
+    if (canPair(_a)) _a.status = 'Breed';
   });
+  releaseFromSlots(displaced);   // Breed and Temp Breed become Reserve
   const msg = `⚡ ${plan.sp} Pair ${pairIdx + 1}: ♂ ${p.m || '—'} × ♀ ${p.f || '—'}`;
   addLog(msg, 'pair');
   showToast(msg);
@@ -2559,6 +2722,7 @@ function applyOptimizeSingleSuggestion(planIdx, suggIdx, btn) {
   if      (s.action === 'cull')    tgt.status = 'Dead';
   else if (s.action === 'store')   tgt.status = 'Station';
   else if (s.action === 'reserve') tgt.status = 'Reserve';
+  syncPairSlots(tgt);   // a culled or stored animal that still sits in a pair slot leaves it
   const label = { cull:'Dead/Culled', store:'On Station', reserve:'Reserve', keep:'Keep' }[s.action] || s.action;
   const msg = `⚡ ${$h(displayName(tgt))} → ${label}`;
   addLog(msg, 'status');
@@ -2588,26 +2752,21 @@ function closeOptimizeModal() {
 function applyOptimizePlan(applyStatuses) {
   if (!_optimizePlan) return;
   let pairChanges = 0, statusChanges = 0;
+  const displaced = [];   // animals replaced in a slot; the leave-a-slot rule runs once every plan is placed
 
   _optimizePlan.forEach(plan => {
     if (!pairsMap[plan.sp]) initPairs();
-    const n = pairCounts[plan.sp] || plan.proposedPairs.length;
+    const n = getPairCount(plan.sp);
     // Ensure slots exist
     while (pairsMap[plan.sp].length < n) pairsMap[plan.sp].push({ m: '', f: '' });
     plan.proposedPairs.forEach((p, i) => {
       if (pairsMap[plan.sp][i]) {
-        const _changed = pairsMap[plan.sp][i].m !== p.m || pairsMap[plan.sp][i].f !== p.f;
-        if (_changed) {
-          pairChanges++;
-          const _om = pairsMap[plan.sp][i].m, _of = pairsMap[plan.sp][i].f;
-          if (_om && _om !== p.m) { const _a = animals.find(x => x.name === _om); if (_a && _a.status === 'Breed') _a.status = '?'; }
-          if (_of && _of !== p.f) { const _a = animals.find(x => x.name === _of); if (_a && _a.status === 'Breed') _a.status = '?'; }
-        }
-        pairsMap[plan.sp][i].m = p.m;
-        pairsMap[plan.sp][i].f = p.f;
+        if (pairsMap[plan.sp][i].m !== p.m || pairsMap[plan.sp][i].f !== p.f) pairChanges++;
+        // A proposed animal that sits in another slot moves here ("⚠ in pair")
+        displaced.push(placeInSlot(plan.sp, i, 'm', p.m), placeInSlot(plan.sp, i, 'f', p.f));
         [p.m, p.f].filter(Boolean).forEach(n => {
           const _a = animals.find(x => x.name === n);
-          if (_a && !['Dead','Station','Discard'].includes(_a.status)) _a.status = 'Breed';
+          if (canPair(_a)) _a.status = 'Breed';
         });
       }
     });
@@ -2619,9 +2778,11 @@ function applyOptimizePlan(applyStatuses) {
         else if (s.action === 'store')   { tgt.status = 'Station'; statusChanges++; }
         else if (s.action === 'reserve') { tgt.status = 'Reserve'; statusChanges++; }
         // 'keep' = no change
+        syncPairSlots(tgt);
       });
     }
   });
+  releaseFromSlots(displaced);   // replaced and not placed elsewhere: Breed and Temp Breed become Reserve
 
   saveAndRefresh();
   const msg = applyStatuses
@@ -2652,7 +2813,7 @@ function initGoals() {
     for (const m of [g.phenoWeights, g.blPriority]) for (const k of Object.keys(m)) m[k] = _clampInt(m[k], -3, 3, 0);
     // Default: Unstable is always a breeding priority (value 2 = ★★) unless user overrides
     if (!g.blPriority.Unstable) g.blPriority.Unstable = 2;
-    const n = pairCounts[sp] || cfg.defaultPairs;
+    const n = getPairCount(sp);
     while (g.pairs.length < n) g.pairs.push({ bl:'', ph:'' });
   }
 }
@@ -2706,7 +2867,7 @@ function hasNegativeTrait(sp, animal) {
 function buildBreedingSuggestions(sp) {
   initGoals();
   const g      = goalsMap[sp] || {};
-  const n      = pairCounts[sp] || 1;
+  const n      = getPairCount(sp);
   const pairs  = (pairsMap[sp] || []).slice(0, n);
   const blP    = g.blPriority  || {};
   const phW    = g.phenoWeights || {};
@@ -3037,7 +3198,7 @@ function renderGoals() {
 /** Build the Goals card for one species, or its chip when the card is collapsed */
 function _renderGoalCard(sp, cfg, grid, goalsChips) {
   const goals = goalsMap[sp];
-  const n = pairCounts[sp] || cfg.defaultPairs;
+  const n = getPairCount(sp);
   const card = document.createElement('div');
   const isWide = cardWidths[sp] === 2;
   const isGoalCardCollapsed = collapsedGoalCards.has(sp);
@@ -3390,11 +3551,11 @@ function computeAdvice() {
 
   const pairs    = pairsMap[sp] || [];
   const sexKey   = sex === 'M' ? 'm' : 'f';
-  const spAnimals = animals.filter(a => a.sp === sp && a.sex === sex && a.status !== 'Dead' && a.status !== 'Station');
+  const spAnimals = animals.filter(a => a.sp === sp && a.sex === sex && canPair(a));
   const goals    = goalsMap[sp] || {};
   const results  = [];
 
-  pairs.slice(0, pairCounts[sp]).forEach((pair, pi) => {
+  pairs.slice(0, getPairCount(sp)).forEach((pair, pi) => {
     const currentName = pair[sexKey];
     const goal = (goals.pairs || [])[pi] || {};
     const newScore = scoreFor(sp, bl, ph, total, pi);
@@ -3964,6 +4125,27 @@ function quickCopy(name) {
 
 // ── SAVE / EDIT ──────────────────────────────────────────────────
 /**
+ * True if one of `names` is an ancestor of the animal named `start`, following parent links (names) through the herd.
+ * skipId is the animal being edited: its stored parents are about to be replaced. A loop already in a file ends the walk
+ */
+function hasAncestor(start, names, skipId) {
+  const byName = new Map();
+  animals.forEach(a => { if (a.id !== skipId) { if (!byName.has(a.name)) byName.set(a.name, []); byName.get(a.name).push(a); } });
+  const seen = new Set(), todo = [start];
+  while (todo.length) {
+    const n = todo.pop();
+    if (seen.has(n)) continue;
+    seen.add(n);
+    for (const a of byName.get(n) || []) for (const p of [a.p1, a.p2]) {
+      if (!p || p === 'Unknown') continue;
+      if (names.has(p)) return true;
+      todo.push(p);
+    }
+  }
+  return false;
+}
+
+/**
  * Validate and save the New/Edit Animal form.
  * Creates a new animal or overwrites an existing one depending on editingId.
  * Resets the form after saving and shows the pair-assignment panel for new animals.
@@ -4011,40 +4193,55 @@ function saveAnimal() {
   const oldP2 = oldAnimal?.p2 || '';
   const oldIsBred = oldAnimal ? ((oldP1 && oldP1 !== 'Unknown') || (oldP2 && oldP2 !== 'Unknown')) : false;
 
-  let id, animalSpId;
-  if (editingId) {
-    id = editingId;
-    const existing = animals.find(a => a.id === editingId);
-    if (existing && existing.sp !== sp) {
-      // Species changed (for example an unknown species fixed): keep the ID only if the new species does not use it,
-      // and move that species' counter past it so it is not handed out again
-      const free = existing.spId > 0 && !animals.some(a => a !== existing && a.sp === sp && a.spId === existing.spId);
-      if (free) {
-        animalSpId = existing.spId;
-        if (Object.hasOwn(SPECIES_DATA, sp)) { const sh = getShort(sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, animalSpId + 1); }
-      } else animalSpId = getNextSpId(sp);
-    } else animalSpId = existing?.spId ?? getNextSpId(sp);
-  } else {
-    id = newAnimalId();
-    animalSpId = getNextSpId(sp);
-  }
+  // The species ID. New numbers are handed out only once every check below has passed, so a refused save uses none up;
+  // until then the name is built with the number the save would get (peekNextSpId gives the same as getNextSpId)
+  let animalSpId, takeSpId = false, keptSpId = false;
+  if (oldAnimal && oldAnimal.sp !== sp) {
+    // Species changed (for example an unknown species fixed): keep the ID only if the new species does not use it,
+    // and move that species' counter past it so it is not handed out again
+    keptSpId = oldAnimal.spId > 0 && !animals.some(a => a !== oldAnimal && a.sp === sp && a.spId === oldAnimal.spId);
+    if (keptSpId) animalSpId = oldAnimal.spId;
+    else { animalSpId = peekNextSpId(sp); takeSpId = true; }
+  } else if (oldAnimal && oldAnimal.spId != null) animalSpId = oldAnimal.spId;
+  else { animalSpId = peekNextSpId(sp); takeSpId = true; }
 
   const total = getTotal(stats, sp);
-  let name  = computeName(sp, sex, bl, ph, stats, animalSpId);
   const customName = ($id('f-custom-name')?.value || '').trim();
-  if (customName) {
-    const isDupe = animals.some(a => a.name === customName && a.id !== editingId);
-    if (isDupe) { showToast(`⚠ "${customName}" already exists — choose a different name`); return; }
-    name = customName;
+  const name = customName || computeName(sp, sex, bl, ph, stats, animalSpId);
+  // Pair slots and parent links point at names, so a new or changed name must not belong to another animal.
+  // An unchanged name is not checked: an older file can hold two animals with one name, and both stay editable
+  if ((!oldAnimal || oldAnimal.name !== name) && animals.some(a => a.name === name && a.id !== editingId)) {
+    showToast(`⚠ "${name}" already exists — choose a different name`);
+    return;
   }
+
+  // An animal cannot be its own parent, and no parent can descend from it: the lineage would loop.
+  // Offspring still point at the old name of an animal being edited, so both names count. Only parents that differ from
+  // the saved ones are checked, so an animal already in a loop from a file can still be edited (notes, status)
+  const selfNames = new Set([name, oldAnimal?.name].filter(Boolean));
+  const savedParents = new Set([oldAnimal?.p1, oldAnimal?.p2].filter(Boolean));
+  const parentNames = [p1, p2].filter(p => p && p !== 'Unknown' && !savedParents.has(p));
+  if (parentNames.some(p => selfNames.has(p))) { showToast('⚠ An animal cannot be its own parent'); return; }
+  const descendant = parentNames.find(p => hasAncestor(p, selfNames, editingId));
+  if (descendant) { showToast(`⚠ ${descendant} descends from this animal, so it cannot be its parent`); return; }
+
+  // Every check passed: hand out the numbers
+  const id = editingId || newAnimalId();
+  if (takeSpId) getNextSpId(sp);
+  else if (keptSpId && Object.hasOwn(SPECIES_DATA, sp)) { const sh = getShort(sp); nextSpAid[sh] = Math.max(nextSpAid[sh] || 1, animalSpId + 1); }
 
   const nickname = ($id('f-nickname')?.value || '').trim();
   const favorite = editingId ? (oldAnimal?.favorite ?? false) : false;
   const animal = { id, spId: animalSpId, sp, sex, bl, ph, gen, p1, p2, isBred, stats, total, name, nickname, favorite, status, notes, ...(level ? { level } : {}) };
 
   if (editingId) {
+    // A generated name follows the edited stats, bloodline and phenotype; its pair slot and offspring links follow the name.
+    // This runs while the saved animal still holds the old name, so the slot's owner can be told apart from a twin
+    if (oldAnimal && oldAnimal.name !== name) renameAnimal(oldAnimal, name);
     const i = animals.findIndex(a => a.id === editingId);
     if (i >= 0) animals[i] = animal;
+    syncPairSlots(animal);   // a status set to Dead, On Station or Discard in the form leaves the pair slot
+    dropMisfitSlots(animal);  // so does a new species or sex that no longer fits the slot
     editingId = null;
     $id('save-btn').textContent = '💾 Save Animal';
     $id('cancel-edit-btn').style.display = 'none';
@@ -4156,8 +4353,9 @@ function setAnimalStatus(id, val) {
   if (!a) return;
   const oldLabel = STATUS_LABEL[a.status] || a.status;
   a.status = val;
+  syncPairSlots(a);   // Dead, On Station and Discard leave their pair slot
   saveAndRefresh();
-  addLog(`${$h(a.name)}: ${oldLabel} → ${STATUS_ICON[val]} ${STATUS_LABEL[val]}`, 'status');
+  addLog(`${a.name}: ${oldLabel} → ${STATUS_ICON[val]} ${STATUS_LABEL[val]}`, 'status');
 }
 
 function getSortVal(a, col) {
@@ -4322,14 +4520,41 @@ function renderHerd() {
   }).join('');
 }
 
-/** Mark animal as Dead (soft delete). No confirm — undo toast available for 5 s. */
+/** Mark animal as Dead (soft delete). No confirm — undo toast available for 5 s. The animal leaves its pair slot; Undo puts it back */
 function markDead(id) {
   const a = animals.find(x => x.id === id);
   if (!a) return;
+  // Where the animal sat, so Undo can put it back: the row, its partner and how many rows the species had
+  const before = { status: a.status, slots: [] };
+  for (const [sp, ps] of Object.entries(pairsMap)) (Array.isArray(ps) ? ps : []).forEach((p, idx) => {
+    for (const sex of ['m', 'f']) if (p && p[sex] === a.name) before.slots.push({ sp, idx, sex, partner: p[sex === 'm' ? 'f' : 'm'] || '', rows: ps.length });
+  });
   a.status = 'Dead';
-  addLog(`🪦 ${$h(displayName(a))} marked dead/culled`, 'status');
+  syncPairSlots(a);
+  before.slots = before.slots.filter(({ sp, idx, sex }) => !pairsMap[sp][idx][sex]);   // a twin with the same name may keep a slot
+  addLog(`🪦 ${displayName(a)} marked dead/culled`, 'status');   // the log and the banner escape the text themselves
   saveAndRefresh();
-  showUndoToast(`🪦 ${$h(displayName(a))} marked dead`, () => reviveAnimal(id));
+  showUndoToast(`🪦 ${displayName(a)} marked dead`, () => undoMarkDead(id, before));   // showUndoToast escapes the text itself
+}
+
+/**
+ * Undo for markDead: the animal gets back its earlier status, so an unpaired Breed animal is Breed again. It goes back into
+ * the slot it left only if that row is still where it was (same number of rows, same partner) and the slot is empty.
+ * Otherwise it has lost its slot like any other animal: Breed and Temp Breed become Reserve
+ */
+function undoMarkDead(id, before) {
+  const a = animals.find(x => x.id === id);
+  if (!a || a.status !== 'Dead') return;
+  a.status = before.status;
+  let lostSlot = false;
+  for (const { sp, idx, sex, partner, rows } of before.slots) {
+    const ps = pairsMap[sp], p = Array.isArray(ps) && ps.length === rows ? ps[idx] : null;
+    if (p && !p[sex] && (p[sex === 'm' ? 'f' : 'm'] || '') === partner && !pairedNames().has(a.name)) p[sex] = a.name;
+    else lostSlot = true;
+  }
+  if (lostSlot) releaseFromSlots([a.name]);
+  addLog(`↩ ${displayName(a)} restored from dead/culled`, 'status');
+  saveAndRefresh(); showToast(`${displayName(a)} restored`);
 }
 
 /** Restore a dead/culled animal back to Undecided status. */
@@ -4394,21 +4619,6 @@ function editAnimal(id) {
   setTimeout(_drawFormRadar, 50);
 }
 
-/**
- * Delete an animal permanently.
- * @param {number} id - animal id
- * @param {boolean} quiet - if true, skip confirmation (used from advice panel)
- */
-/** Clear an animal from every pair slot it occupies. Returns true if it was in one */
-function unassignFromPairs(name) {
-  let found = false;
-  for (const ps of Object.values(pairsMap)) for (const p of ps || []) {
-    if (p && p.m === name) { p.m = ''; found = true; }
-    if (p && p.f === name) { p.f = ''; found = true; }
-  }
-  return found;
-}
-
 function setAdviceStatus(id, status) {
   const a = animals.find(x => x.id === id);
   if (!a) return;
@@ -4417,8 +4627,8 @@ function setAdviceStatus(id, status) {
   save();
   renderHerd(); renderPairs();
   const label = STATUS_LABEL[status] || status;
-  showToast(`${$h(a.name)} → ${STATUS_ICON[status]} ${label}`);
-  addLog(`${$h(a.name)} → ${STATUS_ICON[status]} ${label} (from advice panel)`, 'status');
+  showToast(`${a.name} → ${STATUS_ICON[status]} ${label}`);
+  addLog(`${a.name} → ${STATUS_ICON[status]} ${label} (from advice panel)`, 'status');
   // Re-run advice panel so the buttons disappear now the action is taken
   const panel = $id('advice-panel');
   if (panel && panel.classList.contains('show')) renderAdvice();
@@ -4435,6 +4645,7 @@ function deleteAnimal(id, quiet) {
   if (!quiet && !confirm(`Permanently delete "${$h(a.name)}"?\nTip: use 🪦 to mark as Dead instead.`)) return;
   const delName = a.name;
   animals = animals.filter(x => x.id !== id);
+  syncPairSlots(a, true);   // another animal with the same name that can still be paired keeps the slot
   saveAndRefreshFull();
   showToast('Animal deleted');
   addLog(`Ὕ1 Deleted ${delName}`, 'delete');
@@ -4479,7 +4690,7 @@ function computePairSuggestions(animal) {
   }
 
   for (const sp of compatSp) {
-    const n = pairCounts[sp] || 1;
+    const n = getPairCount(sp);
     const pairs = pairsMap[sp] || [];
     for (let i = 0; i < n; i++) {
       const pair = pairs[i] || { m:'', f:'' };
@@ -4504,7 +4715,7 @@ function showPairAssignPanel(animalId) {
   const animal = animals.find(a => a.id === animalId);
   const panel  = $id('pair-assign-panel');
   if (!animal || !panel) return;
-  if (['Dead','Discard'].includes(animal.status)) { panel.style.display = 'none'; return; }
+  if (!canPair(animal)) { panel.style.display = 'none'; return; }
 
   const suggestions = computePairSuggestions(animal);
   if (!suggestions.length) { panel.style.display = 'none'; return; }
@@ -4535,7 +4746,7 @@ function buildPairAssignHTML(animal, suggestions, sel) {
   ).join('');
 
   // Pair dropdown (for selected species)
-  const n = pairCounts[sel.sp] || 1;
+  const n = getPairCount(sel.sp);
   const pairOpts = Array.from({length: n}, (_, i) =>
     `<option value="${i}"${i === sel.pairIdx ? ' selected' : ''}>Pair ${i + 1}</option>`
   ).join('');
@@ -4584,7 +4795,7 @@ function paOccupantHtml(slot) {
     <div class="pa-occ-name">${$h(slot.curName)} <span style="color:#888;font-size:10px">(${curTotal} pts · ${$h(curStatus)})</span></div>
     <div style="font-size:11px;color:#aaa;margin-bottom:6px;">What to do with the displaced animal?</div>
     <div class="pa-radio-group">
-      <label><input type="radio" name="pa-displace" value="none" checked> Keep their current status (just remove from pair)</label>
+      <label><input type="radio" name="pa-displace" value="none" checked> Just remove from pair (Breed and Temp Breed become Reserve)</label>
       <label style="color:#88aaff;"><input type="radio" name="pa-displace" value="Reserve"> 🔶 Move to Reserve</label>
       <label style="color:#888;"><input type="radio" name="pa-displace" value="Discard"> 🗑️ Mark as Discard</label>
     </div>
@@ -4608,7 +4819,7 @@ function paGetCurrentSlot() {
 function onPaSpChange() {
   // Rebuild pair dropdown for new species, then refresh occupant
   const sp   = $val('pa-sp');
-  const n    = pairCounts[sp] || 1;
+  const n    = getPairCount(sp);
   const pSel = $id('pa-pair');
   if (!pSel) return;
   pSel.innerHTML = Array.from({length: n}, (_, i) =>
@@ -4628,7 +4839,7 @@ function onPaPairChange() {
 
 function confirmPairAssignment() {
   const animal = animals.find(a => a.id === _paAnimalId);
-  if (!animal) return;
+  if (!animal || !canPair(animal)) return;
   const slot = paGetCurrentSlot();
   if (!slot) return;
 
@@ -4642,19 +4853,20 @@ function confirmPairAssignment() {
 
   // Ensure pair slot exists
   if (!pairsMap[slot.sp]) initPairs();
-  while (pairsMap[slot.sp].length <= slot.pairIdx) pairsMap[slot.sp].push({ m:'', f:'' });
 
   // Place the animal
-  pairsMap[slot.sp][slot.pairIdx][slot.sexKey] = animal.name;
+  const displacedName = placeInSlot(slot.sp, slot.pairIdx, slot.sexKey, animal.name);
 
   // Bump status to Breed if was undecided/keep
   if (['?','Keep'].includes(animal.status)) {
     animal.status = 'Breed';
   }
+  // "Just remove from pair": the leave-a-slot rule, so Breed and Temp Breed become Reserve
+  if (displaceAction === 'none') releaseFromSlots([displacedName]);
 
   saveAndRefresh();
   dismissPairAssign();
-  showToast(`✓ ${$h(animal.name)} → ${SPECIES_DATA[slot.sp]?.short || slot.sp} Pair ${slot.pairIdx + 1}`);
+  showToast(`✓ ${animal.name} → ${SPECIES_DATA[slot.sp]?.short || slot.sp} Pair ${slot.pairIdx + 1}`);
 }
 
 function dismissPairAssign() {
@@ -4977,13 +5189,15 @@ function viewAnimal(id) {
 
   // Available pair slots for this species (to assign into)
   const spPairs    = pairsMap[a.sp] || [];
-  const n          = pairCounts[a.sp] || 1;
+  const n          = getPairCount(a.sp);
   const crossForSp = Object.entries(CROSS_BREEDS).filter(([, v]) => v.includes(a.sp)).map(([k]) => k);
-  const allTargetSp = [a.sp, ...crossForSp];
+  // Only species this version knows have pair slots: a file can name another species, even "constructor"
+  const allTargetSp = [a.sp, ...crossForSp].filter(tsp => Object.hasOwn(SPECIES_DATA, tsp));
   let pairSlotsHtml = '';
-  allTargetSp.forEach(tsp => {
+  // Dead, On Station and Discard animals get no slot buttons
+  if (canPair(a)) allTargetSp.forEach(tsp => {
     const tPairs = pairsMap[tsp] || [];
-    const tn = pairCounts[tsp] || 1;
+    const tn = getPairCount(tsp);
     for (let i = 0; i < tn; i++) {
       const p = tPairs[i] || { m: '', f: '' };
       // Show both slots; only show empty or same-animal slots
@@ -5009,7 +5223,9 @@ function viewAnimal(id) {
       });
     }
   });
-  if (!pairSlotsHtml) pairSlotsHtml = `<div style="color:var(--dim);font-size:11px">No pair slots available — add pairs first</div>`;
+  if (!pairSlotsHtml) pairSlotsHtml = canPair(a)
+    ? `<div style="color:var(--dim);font-size:11px">No pair slots available — add pairs first</div>`
+    : `<div style="color:var(--dim);font-size:11px">${$h(STATUS_LABEL[a.status] || a.status)} animals cannot be placed in a pair</div>`;
 
   const currentPairNote = currentPair
     ? `<span style="color:#88aaff;font-size:11px">👉 Currently in ${currentPair.sp} Pair ${currentPair.idx+1} (${currentPair.sex === 'M' ? '♂' : '♀'})</span>`
@@ -5136,16 +5352,16 @@ function renderPairs() {
       hdr.textContent = CATEGORY_LABELS[cat] || cat;
       grid.appendChild(hdr);
     }
-    const n = pairCounts[sp] || 1;
+    const n = getPairCount(sp);
     const pairs = (pairsMap[sp] || []).slice(0, n);
     const goals = goalsMap[sp] || {};
     const crossPartners = CROSS_BREEDS[sp] || [];
 
     // Own-species animals
-    const spAnimals = animals.filter(a => a.sp === sp && a.status !== 'Dead' && a.status !== 'Station');
+    const spAnimals = animals.filter(a => a.sp === sp && canPair(a));
     // Cross-breed partner animals (labelled with species short code)
     const crossAnimals = crossPartners.flatMap(csp =>
-      animals.filter(a => a.sp === csp && a.status !== 'Dead' && a.status !== 'Station')
+      animals.filter(a => a.sp === csp && canPair(a))
     );
     const allPairAnimals = [...spAnimals, ...crossAnimals];
 
@@ -5307,7 +5523,22 @@ function renderPairs() {
  * Logs the old→new change and saves.
  */
 function updatePair(sp, idx, sex, name) {
+  // A species this version does not know (a file can name one, even "constructor") has no pair slots
+  if (!Object.hasOwn(SPECIES_DATA, sp)) return;
   if (!pairsMap[sp]) initPairs();
+  // Guard: only an animal in the herd that can be paired is placed, never Dead, On Station or Discard
+  const newA = name ? slotAnimal(name, sp, sex) : null;
+  if (name && !canPair(newA)) {
+    showToast(newA ? `${name} is ${STATUS_LABEL[newA.status]} and cannot be placed in a pair` : `${name} is not in the herd`);
+    renderPairs();
+    return;
+  }
+  // Guard: the slot's species (or a cross-breed partner) and the slot's sex
+  if (newA && !slotFits(newA, sp, sex)) {
+    showToast(`⚠ ${name} does not fit a ${sp} ${sex === 'm' ? '♂' : '♀'} slot`);
+    renderPairs();
+    return;
+  }
   // Guard: global exclusivity — reject if animal is already assigned anywhere else
   if (name) {
     for (const [s, ps] of Object.entries(pairsMap)) {
@@ -5322,17 +5553,11 @@ function updatePair(sp, idx, sex, name) {
     }
   }
   const oldName = (pairsMap[sp] || [])[idx]?.[sex] || '';
-  // Auto-status: if removed animal was set to Breed by pair assignment, revert to Undecided
-  if (oldName && oldName !== name) {
-    const oldA = animals.find(a => a.name === oldName);
-    if (oldA && oldA.status === 'Breed') oldA.status = '?';
-  }
   pairsMap[sp][idx][sex] = name;
   // Auto-status: set newly added animal to Breed
-  if (name) {
-    const newA = animals.find(a => a.name === name);
-    if (newA && !['Dead','Station','Discard'].includes(newA.status)) newA.status = 'Breed';
-  }
+  if (newA) newA.status = 'Breed';
+  // The animal that left the slot (✕, dropped on the pool, or replaced): Breed and Temp Breed become Reserve
+  if (oldName !== name) releaseFromSlots([oldName]);
   save(); renderPairs();
   const sexSym = sex === 'M' ? '♂' : '♀';
   const logMsg = oldName && name ? `${sp} Pair ${idx+1} ${sexSym}: ${oldName} → ${name}`
@@ -5960,6 +6185,8 @@ function planMountImport(text) {
  *   notInFile: Map animalId -> '' | '?' | 'Dead'
  */
 function applyMountImport(plan, choices) {
+  // Which animals sit in a pair slot now, to report the ones that leave it (sex no longer fits, Station, Dead)
+  const pairedAtStart = pairedNames(), pairedBefore = animals.filter(a => pairedAtStart.has(a.name));
   // Reserve every ID in use so new ones never collide
   _reserveSpIds();
   const byName = new Map(animals.map(a => [a.name, a]));
@@ -6024,19 +6251,23 @@ function applyMountImport(plan, choices) {
     if (wasAuto) {
       const fresh = computeName(a.sp, a.sex, a.bl, a.ph, a.stats, a.spId);
       if (fresh !== a.name) {
-        animals.forEach(o => { if (o.p1 === a.name) o.p1 = fresh; if (o.p2 === a.name) o.p2 = fresh; });
+        renameAnimal(a, fresh);   // while the animal still has the old name
         byName.delete(a.name); a.name = fresh; byName.set(fresh, a);
       }
     }
+    dropMisfitSlots(a, true);   // a sex change from the game can leave the animal in a slot of the other sex; reported below
   });
   // Matched animals: fill in a level the tracker did not have, and set the station status if asked
   [...plan.changed, ...plan.unchanged].forEach(({ a, c }) => { if (c.level > 0 && !a.level) a.level = c.level; });
-  if (choices.stationAll) plan.claimedIds.forEach(id => { const a = animals.find(x => x.id === id); if (a) a.status = 'Station'; });
+  if (choices.stationAll) plan.claimedIds.forEach(id => { const a = animals.find(x => x.id === id); if (a) { a.status = 'Station'; syncPairSlots(a); } });
   let statusChanged = 0;
-  plan.notInFile.forEach(a => { const s = choices.notInFile.get(a.id); if (s === '?' || s === 'Dead') { a.status = s; statusChanged++; } });
+  plan.notInFile.forEach(a => { const s = choices.notInFile.get(a.id); if (s === '?' || s === 'Dead') { a.status = s; syncPairSlots(a); statusChanged++; } });
   if (created.length || fieldsApplied || statusChanged) addLog(`Imported from the game file: ${created.length} new, ${fieldsApplied} fields updated, ${statusChanged} status changes`, 'add');
+  // One log line per animal that left its pair slot, with the status it ends up with
+  const pairedAtEnd = pairedNames(), leftSlot = pairedBefore.filter(a => !pairedAtEnd.has(a.name));
+  leftSlot.forEach(a => addLog(`${a.name} left its pair slot in the import from the game, now ${STATUS_ICON[a.status]} ${STATUS_LABEL[a.status]}`, 'pair'));
   saveAndRefreshFull();
-  return { added: created.length, fieldsApplied, statusChanged };
+  return { added: created.length, fieldsApplied, statusChanged, left: leftSlot.length };
 }
 
 /** Preview modal: nothing changes until Confirm */
@@ -6110,7 +6341,8 @@ function showMountPreview(plan, fileName) {
     box.querySelectorAll('select').forEach(sel => { const id = parseFloat(sel.dataset.key.split('|')[1]); if (sel.value) choices.notInFile.set(id, sel.value); });
     close();
     const r = applyMountImport(plan, choices);
-    showToast(`Imported ${r.added} animals` + (r.fieldsApplied ? `, updated ${r.fieldsApplied} fields` : '') + (r.statusChanged ? `, ${r.statusChanged} status changes` : ''));
+    showToast(`Imported ${r.added} animals` + (r.fieldsApplied ? `, updated ${r.fieldsApplied} fields` : '') + (r.statusChanged ? `, ${r.statusChanged} status changes` : '')
+      + (r.left ? `, ${r.left} left a pair slot` : ''));
   });
 }
 
@@ -6259,7 +6491,7 @@ function _buildPairTile(a, sp, pairIdx, sex, makeBadge) {
     const cfg = SPECIES_DATA[a.sp]; const ph = cfg?.phenotypes.find(p => p.label === a.ph);
     return ph ? (RARITY_COLOR[RARITY_FROM_WEIGHT(ph.weight)] || 'transparent') : 'transparent';
   })();
-  const tileId = a.name.split(' ')[0]; // e.g. "DR02" from "DR02 M42-Unstable P5"
+  const tileId = formatSpId(a.sp, a.spId); // e.g. "DR02", also for a custom name
   return `<div class="animal-tile ${sc}" draggable="true"
     data-aid="${a.id}" data-psp="${$esc(sp)}" data-pi="${pairIdx}" data-sex="${sex}"
     title="${$esc(a.name)} · ${$h(a.bl)} · ${tot}"
@@ -6282,7 +6514,7 @@ function _buildPoolTile(a, sp) {
     const cfg = SPECIES_DATA[a.sp]; const ph = cfg?.phenotypes.find(p => p.label === a.ph);
     return ph ? (RARITY_COLOR[RARITY_FROM_WEIGHT(ph.weight)] || 'transparent') : 'transparent';
   })();
-  const tileId = a.name.split(' ')[0];
+  const tileId = formatSpId(a.sp, a.spId);
   return `<div class="animal-tile pool-tile ${sc}" draggable="true"
     data-aid="${a.id}" data-psp="${$esc(sp)}" data-pool="1"
     onclick="viewAnimal(${a.id})"
@@ -6346,7 +6578,7 @@ function _initPairCardDnD(card) {
     slot.addEventListener('dragover', e => {
       e.preventDefault();
       if (!_pairDrag) return;
-      const ok = _pairDrag.sex === slot.dataset.sex;
+      const ok = slotFits(animals.find(x => x.id === _pairDrag.id), slot.dataset.sp, slot.dataset.sex.toLowerCase());
       slot.classList.remove('over-ok','over-bad');
       slot.classList.add(ok ? 'over-ok' : 'over-bad');
       e.dataTransfer.dropEffect = ok ? 'move' : 'none';
@@ -6362,28 +6594,29 @@ function _initPairCardDnD(card) {
         return;
       }
       const tSp = slot.dataset.sp, tPi = +slot.dataset.pi, tSex = slot.dataset.sex.toLowerCase();
+      // Another species' card: refuse before anything moves, so the tile stays in its own slot or pool
+      if (!slotFits(animals.find(x => x.id === _pairDrag.id), tSp, tSex)) {
+        showToast(`⚠ ${_pairDrag.name} cannot go in a ${tSp} slot`);
+        _pairDrag = null;
+        return;
+      }
       const name = _pairDrag.name;
       const dragSnapshot = { ..._pairDrag };
       // Check if target slot is already occupied
       const occupantName = pairsMap[tSp]?.[tPi]?.[tSex];
       const doPlace = () => {
-        // If dragged from another slot, clear source directly to avoid double-render
+        // If dragged from another slot, clear source directly to avoid double-render.
+        // The animal is moved, not removed, so its status is left to updatePair
         if (!dragSnapshot.fromPool && dragSnapshot.fromPi !== null) {
           const fSp = dragSnapshot.sp, fPi = dragSnapshot.fromPi, fSex = dragSnapshot.fromSex.toLowerCase();
-          if (pairsMap[fSp] && pairsMap[fSp][fPi]) {
-            const oldA = animals.find(x => x.name === pairsMap[fSp][fPi][fSex]);
-            if (oldA && oldA.status === 'Breed') oldA.status = '?';
-            pairsMap[fSp][fPi][fSex] = '';
-          }
+          if (pairsMap[fSp] && pairsMap[fSp][fPi]) pairsMap[fSp][fPi][fSex] = '';
         }
-        updatePair(tSp, tPi, tSex, name);
+        updatePair(tSp, tPi, tSex, name);   // the occupant it replaces gets the leave-a-slot rule there
       };
       if (occupantName && occupantName !== name) {
-        showConfirm(`Set ${occupantName} to Reserve and replace with ${name}?`, () => {
-          const displacedA = animals.find(x => x.name === occupantName);
-          if (displacedA) displacedA.status = 'Reserve';
-          doPlace();
-        });
+        const occA = animals.find(x => x.name === occupantName);
+        const toReserve = occA && (occA.status === 'Breed' || occA.status === 'Temp');
+        showConfirm(toReserve ? `Set ${occupantName} to Reserve and replace with ${name}?` : `Replace ${occupantName} with ${name}?`, doPlace);
       } else {
         doPlace();
       }

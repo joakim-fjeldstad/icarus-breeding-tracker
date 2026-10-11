@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.31e – Pair slots follow animal changes
+**2026-10-11**
+
+Implements #24.
+
+### Fixes
+- An animal whose generated name changes, in the edit form or in an import from the game, keeps its pair slot, and its offspring keep their parent links; when an older file gives two animals that name, the slot follows only the twin it belongs to and parent links stay (#24)
+- A new or changed name that another animal already has is refused, also when it is generated (#24)
+- An animal whose species or sex no longer fits its slot after an edit or an import from the game leaves the slot; the edit form shows a message, and the import summary counts the animals that left a slot while the log names their final status (#24)
+- Setting an animal to Dead, On Station or Discard, or deleting it, empties its pair slot in the same step and keeps the status; Undo after 🪦 restores the earlier status and the slot if that row is unchanged, with the same partner, and the slot still empty (#24)
+- An animal taken out of a pair slot becomes Reserve if it was Breed or Temp Breed and keeps any other status, whether by ✕, the pool, a drop onto its slot, the optimiser, the placement panel, the × delete-pair button or the card's − button, which used to leave it at Breed (#24)
+- Loading a herd file empties slots that hold Dead, On Station, Discard or missing animals, animals that do not fit the slot's species or sex, or an animal already in an earlier slot, and cuts slots beyond the pair count; only animals that lose a slot this way turn from Breed or Temp Breed into Reserve, and a herd file with changes is saved once (#24)
+- The Pairs pool, the optimiser and every way of placing an animal use one rule, so the optimiser no longer proposes On Station animals and the pool no longer offers Discard animals; an animal of a species this version does not know gets no Assign buttons (#24)
+- Applying an optimiser proposal moves the animal out of its other pair slot instead of leaving it in two (#24)
+- A pair slot takes only an animal of its species (or a cross-breed partner) and sex; a tile dropped on another species' card or a slot of the other sex stays where it was (#24)
+- Every species keeps at least one pair: deleting the last pair row leaves an empty pair, and a pair count of 0 from an older file becomes 1 and is saved (#24)
+- An animal cannot be saved as its own parent or as the parent of one of its ancestors; the form shows a message, saves nothing and uses up no ID number, and only changed parents are checked so animals in a loop from an older file stay editable (#24)
+- Pair and pool tiles show the species ID, for example BM07, instead of the first word of the name (#24)
+
+---
+
 ## v0.31d – New address
 **2026-10-11**
 

@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.31d-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.31e-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -89,9 +89,11 @@ A **live radar chart** updates as you fill in stats, giving an instant picture o
 
 ![Edit Animal form](screenshots/animal-edit.png)
 
-Two optional name fields: **Custom name** replaces the generated name entirely (typing an old ID into it keeps that ID in the name text only; the animal still gets a new internal ID, which the ID badge and parent lookup use), and **Nickname** sets a display alias shown throughout the app while the generated name stays for matching.
+Two optional name fields: **Custom name** replaces the generated name entirely (typing an old ID into it keeps that ID in the name text only; the animal still gets a new internal ID, which the ID badge and parent lookup use), and **Nickname** sets a display alias shown throughout the app while the generated name stays for matching. When an edit changes the name (a generated name follows the stats, bloodline and phenotype), the animal's pair slot and its offspring's parent links follow the new name. A new or changed name that another animal already has, generated or custom, is refused. If an older file gives two animals the same name, a pair slot follows only the one it belongs to (the twin that can be paired and fits the slot), and parent links stay as they are, because they may belong to the other.
 
-After saving, a **Place in Breeding Pair** panel offers to slot the animal directly into a pair. The app scores all available slots and highlights the best one. If a slot already has an occupant, you choose what happens to the displaced animal.
+An animal cannot be its own parent, and a parent that descends from it (a child, grandchild and so on) is refused: the form shows a message such as "⚠ DR03 M40-Bold descends from this animal, so it cannot be its parent" and saves nothing. Only parents you change are checked, so an animal that an older file already has in such a loop can still be edited.
+
+After saving, a **Place in Breeding Pair** panel offers to slot the animal directly into a pair. The app scores all available slots and highlights the best one. If a slot already has an occupant, you choose what happens to the displaced animal: **Just remove from pair** turns Breed or Temp Breed into Reserve and keeps any other status, or set it to Reserve or Discard. The placed animal becomes Breed if it was Undecided or Keep.
 
 </details>
 
@@ -142,7 +144,7 @@ Close the panel with **✕**, or open another animal to replace it.
 
 Set up your active breeding pairs per species. An animal can be in only one pair slot at a time.
 
-Each pair has two **tile slots** styled after the in-game item slots, male ♂ and female ♀. Below the slots, the **animal pool** shows every unassigned animal of that species as a draggable tile. Each tile shows the animal's short ID (for example `DR02`), a coloured bloodline badge and a phenotype rarity stripe along the top (grey base, green uncommon, blue rare, orange legendary).
+Each pair has two **tile slots** styled after the in-game item slots, male ♂ and female ♀. Below the slots, the **animal pool** shows every unassigned animal of that species as a draggable tile, except Dead, On Station and Discard animals, which never go into a pair. Each tile shows the animal's short ID (for example `DR02`), a coloured bloodline badge and a phenotype rarity stripe along the top (grey base, green uncommon, blue rare, orange legendary).
 
 **Assigning animals**
 
@@ -151,7 +153,15 @@ Each pair has two **tile slots** styled after the in-game item slots, male ♂ a
 - **✕** on an assigned tile returns the animal to the pool
 - **Click any tile** to open the viewer
 
-When placed in a slot the animal's status becomes **Breed**, unless it is Dead, On Station or Discard. When removed, it goes back to **Undecided** only if its status is still Breed; the earlier status is not remembered. Dropping an animal onto an occupied slot moves the occupant to **Reserve** after a confirmation, and the **×** delete-pair button sets both animals of that pair to Reserve. **+ Add Pair Slot** adds a pair slot.
+A slot takes only an animal of its own species (or a cross-breed partner) and sex. A tile dropped on another species' card or on a slot of the other sex stays where it was.
+
+Dragging an animal into a slot, **Assign** in the Animal View and the optimiser set its status to **Breed**, also from Reserve or Temp Breed. The **Place in Breeding Pair** panel after saving sets Breed only from Undecided or Keep, so a Reserve or Temp Breed animal keeps its status there.
+
+An animal that leaves a slot becomes **Reserve** if it was Breed or Temp Breed, and keeps any other status. That happens with **✕**, when you drop it on the pool, when you drop another animal onto its slot (after a confirmation), when the optimiser replaces it, when the placement panel puts another animal in its slot and you choose **Just remove from pair**, when the **×** delete-pair button or the card's **−** button removes its pair, and when an edit or an import from the game changes its species or sex so it no longer fits the slot (a message, or the import summary, says so). An animal you set to Breed yourself without putting it in a slot stays Breed.
+
+Setting an animal to Dead, On Station or Discard, or deleting it, empties its slot in the same step and keeps the status you set. **Undo** after 🪦 gives back the earlier status and puts the animal back in its slot, if that pair row is still where it was, with the same partner, and the slot is still empty; otherwise the animal has left the slot as above. **+ Add Pair Slot** adds a pair slot. Every species keeps at least one pair, so deleting the last pair leaves an empty one.
+
+Loading a herd file checks every slot. A slot is emptied when it holds a Dead, On Station or Discard animal, a name that is no animal in the herd, an animal whose species or sex does not fit it, or an animal that already sits in an earlier slot (it keeps the first). Slots beyond the species' pair count are removed. Only an animal that loses its slot this way changes status: Breed or Temp Breed becomes Reserve. Every other animal keeps its status, also a Breed animal that was never in a slot. If anything changed, a herd file is saved once; browser storage is saved on every load anyway.
 
 Each tile shows the animal's ID, a bloodline badge and its stat total, plus a small **✓G** mark when the animal matches a species goal. Hover over a tile for the full name.
 
@@ -159,11 +169,11 @@ An **upgrade recommendation** row inside each species card shows a free animal o
 
 Cards collapse to compact chips with **▼ Hide / ▶ Show** and switch between Narrow and Wide. The grid is a masonry layout, and collapsed state and card width persist.
 
-**⚡ Optimize All** is in the section header (all species) and a ⚡ button on each card optimises one species. My Herd has its own **⚡ Optimize Pairs** button for all species. The optimiser scores every animal except Dead and Discard (including On Station, Reserve and cross-breed partners) against your goals, bloodline priorities and phenotype priorities, then proposes the best male and female for each slot: goals first (one pair per goal where possible), then the highest-scoring remaining animals, with a bias towards bloodline diversity so separate lines are kept. Alongside it lists suggested status changes for animals that are not in a proposed pair. The stat goal is the species maximum, a perfect total. Reserve is suggested for an animal that matches a goal, or has a desired trait but a total below the stat goal. Cull is suggested for a desired-trait animal whose trait is already in two or more proposed slots, or in one slot while the animal is below 70 % of the maximum, and for negative traits or no valued traits below the stat goal. **Store** is suggested for animals with a perfect total that have no place in a pair. Favourited animals are never suggested for culling. Applying Cull sets 🪦 Dead/Culled, not Discard. Each row has its own **Apply** button; choose **Apply Pairs Only** or **Apply All** for everything.
+**⚡ Optimize All** is in the section header (all species) and a ⚡ button on each card optimises one species. My Herd has its own **⚡ Optimize Pairs** button for all species. The optimiser scores the same animals the pool offers, every animal except Dead, On Station and Discard (including Reserve and cross-breed partners), against your goals, bloodline priorities and phenotype priorities, then proposes the best male and female for each slot: goals first (one pair per goal where possible), then the highest-scoring remaining animals, with a bias towards bloodline diversity so separate lines are kept. Alongside it lists suggested status changes for animals that are not in a proposed pair. The stat goal is the species maximum, a perfect total. Reserve is suggested for an animal that matches a goal, or has a desired trait but a total below the stat goal. Cull is suggested for a desired-trait animal whose trait is already in two or more proposed slots, or in one slot while the animal is below 70 % of the maximum, and for negative traits or no valued traits below the stat goal. **Store** is suggested for animals with a perfect total that have no place in a pair. Favourited animals are never suggested for culling. Applying Cull sets 🪦 Dead/Culled, not Discard. Each row has its own **Apply** button; choose **Apply Pairs Only** or **Apply All** for everything.
 
 ![Optimiser](screenshots/optimize.png)
 
-If a proposed animal is in another pair slot, a **⚠ in pair** warning appears; hover over it to see which pair the animal will leave.
+If a proposed animal is in another pair slot, a **⚠ in pair** warning appears; hover over it to see which pair the animal will leave. Applying the proposal moves it out of that slot.
 
 </details>
 
@@ -268,7 +278,7 @@ Good to know:
 | **Status** | What you plan to do with the animal; see the [status reference](#-status-reference). |
 | **Generated name** | `DR01 F55-Bold P3 VIG2` means: Dune Raptor number 1, female, total 55, bloodline Bold, phenotype P3, breed-out stat VIG at 2. The ID (`DR01`) is how you refer to the animal as a parent. |
 | **Nickname** | A display alias. Names imported from the game land here. |
-| **Pair slot** | One male and one female you are breeding together. The number of slots per species is yours to set. |
+| **Pair slot** | One male and one female you are breeding together. The number of slots per species is yours to set, from 1 to 99. |
 
 ---
 
@@ -284,7 +294,7 @@ Good to know:
 
 **What does "Not in file" mean?** The game file only lists animals parked at the station. An animal the tracker has as **🛸 On Station** that is not in the file was taken down to a world or is gone. The preview lets you decide per animal.
 
-**Some animals vanished from Goals.** Breeding Suggestions skip Dead and Discard animals, while the Pairs pool skips Dead and On Station animals. The sightings charts count every animal ever recorded except Discard. Use the status pills in My Herd to see everything. If a card cannot be shown, it displays an error instead and the other cards still render; please report it on GitHub.
+**Some animals vanished from Goals.** Breeding Suggestions skip Dead and Discard animals, while the Pairs pool and the optimiser skip Dead, On Station and Discard animals. The sightings charts count every animal ever recorded except Discard. Use the status pills in My Herd to see everything. If a card cannot be shown, it displays an error instead and the other cards still render; please report it on GitHub.
 
 **An animal shows "duplicate ID" or "unknown species".** Older files can hold two animals with the same ID, and a file from another version can name a species this version lacks. For an unknown species, edit the animal and correct the species. A duplicate ID is only renumbered when you change the species while editing; otherwise editing keeps the ID.
 
@@ -304,6 +314,8 @@ Good to know:
 | 🛸 | On Station | Stored on the space station (transit between maps or safe storage); hidden in My Herd by default |
 | 🗑️ | Discard | Scheduled for removal |
 | 🪦 | Dead/Culled | Deceased, hidden by default, kept in records |
+
+On Station, Discard and Dead/Culled animals are never in a pair slot. An animal that leaves a pair slot becomes Reserve if it was Breed or Temp Breed; Breed that you set on an animal without a slot stays as it is (see [Pairs](#breeding-pairs)).
 
 ---
 

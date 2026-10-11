@@ -629,7 +629,7 @@ const counts = await ev(`(() => { try {
   return { moa: pairCounts.Moa, got: [pairCounts.Buffalo, pairCounts.Pig].join(), defaults: [SPECIES_DATA.Buffalo.defaultPairs, SPECIES_DATA.Pig.defaultPairs].join(),
     tusker: pairCounts.Tusker, slots: pairsMap.Moa.length, slot110Gone: !pairsMap.Moa.some(p => p.m === 'BM05 M0-Wild'), slot110Status: animals[0].status,
     goalSlots: goalsMap.Moa.pairs.length, slinkerGoalSlots: goalsMap.Slinker.pairs.length, error: '' }; } catch (e) { return { error: e.message }; } })()`);
-check('pair counts from a file are clamped to 0..99, and slot lists are cut to match', !counts.error && counts.moa === 99 && counts.got === counts.defaults && counts.tusker === 0 && counts.slots === 99 && counts.slot110Gone && counts.slot110Status === '?' && counts.goalSlots === 99 && counts.slinkerGoalSlots === 99, JSON.stringify(counts));
+check('pair counts from a file are clamped to 1..99, and slot lists are cut to match', !counts.error && counts.moa === 99 && counts.got === counts.defaults && counts.tusker === 1 && counts.slots === 99 && counts.slot110Gone && counts.slot110Status === 'Reserve' && counts.goalSlots === 99 && counts.slinkerGoalSlots === 99, JSON.stringify(counts));
 const uiLimits = await ev(`(() => { try {
   applyData({ version: 7, herd: [], pairCounts: { Moa: 99 } }); migrateMemory();
   addPairSlot('Moa'); const afterAdd = pairCounts.Moa;
@@ -812,6 +812,285 @@ await releaseClock();
 const idCsv = await ev(`({ unique: new Set(animals.map(a => a.id)).size === animals.length, herd: animals.length })`);
 check('a CSV import of 300 rows gives every animal its own internal ID', !csv300.error && csv300.after - csv300.before === 300 && idCsv.unique, JSON.stringify({ ...csv300, ...idCsv }));
 await ev(`(() => { applyData(JSON.parse(window.__snap23)); migrateMemory(); saveAndRefreshFull(); document.getElementById('f-species').value = 'Dune Raptor'; onSpeciesChange(); return true; })()`);
+
+// ── #24: pair slots and parent links follow animal changes ──────────────────────────
+// Each check below fails on v0.31d. Dead, On Station and Discard are never in a pair slot; an animal that leaves a slot
+// keeps its status, except Breed and Temp Breed, which become Reserve
+await ev(`window.__snap24 = JSON.stringify(getAllData()); window.__st24 = n => { const s = {}; STATS.forEach(k => s[k] = n); return s; }; true`);
+// One availability rule: the Pairs pool and the optimiser offer the same animals, and the viewer's Assign cannot place the others
+const avail = await ev(`(() => { try {
+  applyData({ version: 7, herd: [
+      __mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Station', { status: 'Station', stats: __st24(9) }),
+      __mk8(2, 2, 'Moa', 'M', 'Wild', 'BM02 Discard', { status: 'Discard', stats: __st24(8) }),
+      __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 Dead', { status: 'Dead', stats: __st24(10) }),
+      __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 Keep', { status: 'Keep', stats: __st24(2) }),
+      __mk8(5, 5, 'Moa', 'F', 'Wild', 'BM05 Keep', { status: 'Keep', stats: __st24(3) })],
+    pairs: { Moa: [{ m: '', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const poolEl = document.querySelector('.pair-pool[data-pool-sp="Moa"]');
+  const pool = poolEl ? [...poolEl.querySelectorAll('.pool-tile')].map(t => animals.find(a => a.id === +t.dataset.aid)?.name).sort().join() : 'no pool';
+  const proposed = buildOptimizePlanForSpecies('Moa', new Set()).proposedPairs.flatMap(p => [p.m, p.f]).filter(Boolean).sort().join();
+  updatePair('Moa', 0, 'm', 'BM01 Station');
+  return { pool, proposed, slot: pairsMap.Moa[0].m, status: animals[0].status, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('Pairs and the optimiser offer the same animals, never Dead, On Station or Discard', !avail.error && avail.pool === 'BM04 Keep,BM05 Keep'
+  && avail.proposed === 'BM04 Keep,BM05 Keep' && avail.slot === '' && avail.status === 'Station', JSON.stringify(avail));
+// A generated name changes with the stats. Renamed in the edit form (male) or by a game import (female), the animal keeps its
+// pair slot and its offspring keep their parent links
+await ev(`window.__moa24 = (id, sex, n, extra = {}) => { const ph = SPECIES_DATA.Moa.phenotypes[0].label, st = __st24(n);
+  return __mk8(id, id, 'Moa', sex, 'Wild', computeName('Moa', sex, 'Wild', ph, st, id), { ph, stats: st, ...extra }); }; true`);
+const renamed = await ev(`(() => { try {
+  const m = __moa24(1, 'M', 5, { status: 'Breed' }), f = __moa24(2, 'F', 5, { status: 'Breed' }), kid = __moa24(3, 'F', 4, { p1: m.name, p2: f.name, isBred: true, gen: 2 });
+  applyData({ version: 7, herd: [m, f, kid], pairs: { Moa: [{ m: m.name, f: f.name }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('entry'); editAnimal(1);
+  const fit = document.getElementById('stat-FIT'); fit.value = 9; onStatInput(fit, 'FIT'); saveAnimal();
+  const p = planMountImport(${JSON.stringify(fx.file([{ name: 'BM02 Mum', type: 'Moa', sex: 1, variation: 0, lineage: 'Wild', stats: [5, 6, 5, 5, 5, 5, 5] }]))});
+  applyMountImport(p, { addIdx: new Set(), diffKeys: new Set(p.changed.flatMap(x => x.diffs.map(d => x.a.id + '|' + d.field))), stationAll: false, notInFile: new Map() });
+  const by = id => animals.find(a => a.id === id), pair = pairsMap.Moa[0];
+  return { maleRenamed: by(1).name !== m.name, femaleRenamed: by(2).name !== f.name, slotM: pair.m === by(1).name, slotF: pair.f === by(2).name,
+    p1: by(3).p1 === by(1).name, p2: by(3).p2 === by(2).name, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a renamed animal keeps its pair slot and its offspring links, from the edit form and from a game import', !renamed.error && renamed.maleRenamed && renamed.femaleRenamed
+  && renamed.slotM && renamed.slotF && renamed.p1 && renamed.p2, JSON.stringify(renamed));
+// Every way an animal leaves a slot. Dead (and Undo), Station, Discard and Delete empty the slot at once and keep the status;
+// ✕ and the card's − button take an animal out, and only Breed and Temp Breed become Reserve
+const left = await ev(`(() => { try {
+  const males = [['BM01 Dropdown', 'Breed'], ['BM02 Grave', 'Breed'], ['BM03 Form', 'Breed'], ['BM04 Gone', 'Breed'], ['BM05 Temp', 'Temp'], ['BM06 Keep', 'Keep'], ['BM07 Minus', 'Breed']];
+  applyData({ version: 7, herd: males.map(([name, status], i) => __mk8(i + 1, i + 1, 'Moa', 'M', 'Wild', name, { status })),
+    pairs: { Moa: males.map(([name]) => ({ m: name, f: '' })) }, pairCounts: { Moa: 7 } }); migrateMemory();
+  const st = id => animals.find(a => a.id === id)?.status, slot = name => (pairsMap.Moa || []).findIndex(p => p.m === name);
+  setAnimalStatus(1, 'Station');
+  markDead(2); const deadSlot = slot('BM02 Grave'); _toastUndo?.();
+  showTab('entry'); editAnimal(3); document.getElementById('f-status').value = 'Discard'; saveAnimal();
+  deleteAnimal(4, true);
+  updatePair('Moa', 4, 'm', ''); updatePair('Moa', 5, 'm', '');
+  removePairSlot('Moa');
+  return { station: [st(1), slot('BM01 Dropdown')], dead: [deadSlot, st(2), slot('BM02 Grave')], discard: [st(3), slot('BM03 Form')], deleted: slot('BM04 Gone'),
+    temp: [st(5), slot('BM05 Temp')], keep: [st(6), slot('BM06 Keep')], minus: [st(7), slot('BM07 Minus'), pairCounts.Moa], error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('Dead, Station, Discard and Delete empty the pair slot, Undo restores it, and an animal taken out turns Breed or Temp Breed into Reserve',
+  !left.error && left.station.join() === 'Station,-1' && left.dead.join() === '-1,Breed,1' && left.discard.join() === 'Discard,-1' && left.deleted === -1
+  && left.temp.join() === 'Reserve,-1' && left.keep.join() === 'Keep,-1' && left.minus.join() === 'Reserve,-1,6', JSON.stringify(left));
+// Deleting the last pair row leaves one empty pair: the card, the stored count, the entry form's advice and a reload all say 1
+const lastRow = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Last', { status: 'Breed' })], pairs: { Moa: [{ m: 'BM01 Last', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('pairs'); deletePairRow('Moa', 0);
+  const card = document.querySelector('.pair-pool[data-pool-sp="Moa"]')?.closest('.pair-species-card');
+  const shown = card ? [card.querySelector('.pairs-count')?.textContent, card.querySelectorAll('.pair-block').length].join() : 'no card';
+  const stored = pairCounts.Moa, last = animals[0].status;
+  showTab('entry'); const s = document.getElementById('f-species'); s.value = 'Moa'; onSpeciesChange();
+  document.getElementById('f-sex').value = 'M'; document.getElementById('stat-VIG').value = 5;
+  const advice = computeAdvice()?.results.length ?? 'none';
+  resetFormUI(); s.value = 'Dune Raptor'; onSpeciesChange();
+  applyData(JSON.parse(JSON.stringify(getAllData()))); migrateMemory();
+  return { shown, stored, last, advice, reloaded: pairCounts.Moa, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('deleting the last pair row leaves one empty pair everywhere, also after a reload, and its Breed animal becomes Reserve', !lastRow.error && lastRow.shown === '1 pair,1'
+  && lastRow.stored === 1 && lastRow.last === 'Reserve' && lastRow.advice === 1 && lastRow.reloaded === 1, JSON.stringify(lastRow));
+// Parents: an animal cannot be its own parent, or the parent of its parent at any depth. The form refuses and saves nothing
+const parentLoop = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Gran'), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Mum', { p1: 'BM01 Gran' }),
+    __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 Kid', { p2: 'BM02 Mum' }), __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 Other')] }); migrateMemory();
+  showTab('entry');
+  const tryParents = (p1, p2) => { editAnimal(1); document.getElementById('f-p1').value = p1; document.getElementById('f-p2').value = p2; saveAnimal();
+    const toast = document.getElementById('toast').textContent, g = animals.find(a => a.id === 1); editingId = null; resetFormUI(); return [g.p1, g.p2, toast]; };
+  const self = tryParents('BM01 Gran', ''), child = tryParents('', 'BM02 Mum'), grandchild = tryParents('BM03 Kid', ''), other = tryParents('BM04 Other', '');
+  const s = document.getElementById('f-species'); s.value = 'Dune Raptor'; onSpeciesChange();
+  return { self, child, grandchild, other, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('an animal cannot be its own parent or the parent of an ancestor, with a message and nothing saved', !parentLoop.error
+  && parentLoop.self[0] === '' && /own parent/.test(parentLoop.self[2]) && parentLoop.child[1] === '' && /BM02 Mum descends/.test(parentLoop.child[2])
+  && parentLoop.grandchild[0] === '' && /BM03 Kid descends/.test(parentLoop.grandchild[2]) && parentLoop.other[0] === 'BM04 Other', JSON.stringify(parentLoop));
+// Tiles show the species ID, also for an animal with a custom name
+const tileIds = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 7, 'Moa', 'M', 'Wild', 'Big Red', { status: 'Breed' }), __mk8(2, 8, 'Moa', 'F', 'Wild', 'Little Blue')],
+    pairs: { Moa: [{ m: 'Big Red', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const card = document.querySelector('.pair-pool[data-pool-sp="Moa"]')?.closest('.pair-species-card');
+  const text = sel => card ? [...card.querySelectorAll(sel)].map(t => t.textContent).join() : 'no card';
+  return { slot: text('.pair-slot .tile-name'), pool: text('.pool-tile .tile-name'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('pair and pool tiles show the species ID, not the first word of the name', !tileIds.error && tileIds.slot === 'BM07' && tileIds.pool === 'BM08', JSON.stringify(tileIds));
+// Loading applies the same rule. A slot is emptied when it holds a Dead, On Station or Discard animal, a name that is no animal, an
+// animal of the wrong sex, or an animal already in an earlier slot; slots past the count are cut. Only an animal that lost its slot
+// turns from Breed or Temp Breed into Reserve: Breed set by hand without a slot stays. Saved once; the next load changes nothing
+const onLoad = await ev(`(() => { const origSave = save; try {
+  const file = JSON.stringify({ version: 7, herd: [
+      __mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Dead', { status: 'Dead', notes: 'kept' }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 Station', { status: 'Station' }),
+      __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 Discard', { status: 'Discard' }), __mk8(4, 4, 'Moa', 'F', 'Wild', 'BM04 Paired', { status: 'Breed' }),
+      __mk8(5, 5, 'Moa', 'M', 'Wild', 'BM05 Unpaired', { status: 'Breed' }), __mk8(6, 6, 'Moa', 'F', 'Wild', 'BM06 Temp', { status: 'Temp' }),
+      __mk8(7, 7, 'Moa', 'M', 'Wild', 'BM07 Keep', { status: 'Keep' }), __mk8(8, 8, 'Moa', 'F', 'Wild', 'BM08 WrongSex', { status: 'Breed' }),
+      __mk8(9, 9, 'Moa', 'M', 'Wild', 'BM09 Twice', { status: 'Breed' }), __mk8(10, 10, 'Moa', 'M', 'Wild', 'BM10 CutOff', { status: 'Temp' })],
+    pairs: { Moa: [{ m: 'BM01 Dead', f: 'BM02 Station' }, { m: 'BM03 Discard', f: 'BM04 Paired' }, { m: 'BM08 WrongSex', f: 'BM99 Ghost' },
+      { m: 'BM09 Twice', f: '' }, { m: 'BM09 Twice', f: '' }, { m: 'BM10 CutOff', f: '' }] }, pairCounts: { Moa: 5 } });
+  let saves = 0, disk = file; save = () => { saves++; disk = JSON.stringify(getAllData()); };
+  applyData(JSON.parse(disk)); migrateMemory();
+  const firstSaves = saves; saves = 0;
+  applyData(JSON.parse(disk)); migrateMemory();
+  const dead = animals.find(a => a.id === 1);
+  return { slots: pairsMap.Moa.map(p => p.m + '|' + p.f).join(), statuses: animals.map(a => a.status).join(), dead: [dead.name, dead.status, dead.notes].join(),
+    firstSaves, secondSaves: saves, error: '' };
+} catch (e) { return { error: e.message }; } finally { save = origSave; } })()`);
+check('a loaded file empties slots holding Dead, On Station, Discard, missing, misfitting or repeated animals, and only animals that lost a slot become Reserve', !onLoad.error
+  && onLoad.slots === '|,|BM04 Paired,|,BM09 Twice|,|' && onLoad.statuses === 'Dead,Station,Discard,Breed,Breed,Temp,Keep,Reserve,Breed,Reserve'
+  && onLoad.dead === 'BM01 Dead,Dead,kept' && onLoad.firstSaves === 1 && onLoad.secondSaves === 0, JSON.stringify(onLoad));
+// A pair count of 0 (an older deletePairRow could store it) becomes 1, and the file is written once
+const zeroCount = await ev(`(() => { const origSave = save; try {
+  let saves = 0; save = () => { saves++; };
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Zero')], pairCounts: { Moa: 0 } }); migrateMemory();
+  return { count: pairCounts.Moa, saves, error: '' }; } catch (e) { return { error: e.message }; } finally { save = origSave; } })()`);
+check('a pair count of 0 from a file becomes 1 and the file is saved', !zeroCount.error && zeroCount.count === 1 && zeroCount.saves === 1, JSON.stringify(zeroCount));
+// A new species or sex that no longer fits the slot: the edit takes the animal out, Breed becomes Reserve, and it can be placed again
+const misfit = await ev(`(() => { try {
+  const m = __moa24(1, 'M', 5, { status: 'Breed' }), f = __moa24(2, 'F', 5, { status: 'Breed' });
+  applyData({ version: 7, herd: [m, f], pairs: { Moa: [{ m: m.name, f: f.name }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('entry'); editAnimal(1); const s = document.getElementById('f-species'); s.value = 'Buffalo'; onSpeciesChange(); saveAnimal();
+  const toast = document.getElementById('toast').textContent;
+  editAnimal(2); document.getElementById('f-sex').value = 'M'; saveAnimal();
+  s.value = 'Dune Raptor'; onSpeciesChange();
+  showTab('pairs'); renderPairs();
+  const by = id => animals.find(a => a.id === id), pool = document.querySelector('.pair-pool[data-pool-sp="Buffalo"]');
+  return { slot: pairsMap.Moa[0].m + '|' + pairsMap.Moa[0].f, statuses: [by(1).status, by(2).status].join(), species: by(1).sp,
+    inBuffaloPool: !!pool?.querySelector('.pool-tile[data-aid="1"]'), toast: /no longer fits/.test(toast), logged: logEntries.some(e => /no longer fits/.test(e.msg)),
+    error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a paired animal edited to another species or sex leaves the slot, becomes Reserve, says so, and can be placed again', !misfit.error && misfit.slot === '|'
+  && misfit.statuses === 'Reserve,Reserve' && misfit.species === 'Buffalo' && misfit.inBuffaloPool && misfit.toast && misfit.logged, JSON.stringify(misfit));
+// Two animals with one name (older files): renaming one moves nothing that may be the other's, a generated name may not repeat
+// another animal's name, and on load the twin that can be paired keeps the slot
+const twins = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'Twin', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'M', 'Wild', 'Twin', { status: 'Keep' }),
+    __mk8(3, 3, 'Moa', 'F', 'Wild', 'Kid', { p1: 'Twin' }), __mk8(4, 7, 'Moa', 'M', 'Wild', computeName('Moa', 'M', 'Wild', '', {}, 7)),
+    __mk8(5, 7, 'Moa', 'M', 'Wild', 'Dee')], pairs: { Moa: [{ m: 'Twin', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('entry'); editAnimal(2); document.getElementById('f-custom-name').value = 'Twin Two'; saveAnimal();
+  const afterRename = { slot: pairsMap.Moa[0].m, kidP1: animals.find(a => a.id === 3).p1, renamed: animals.find(a => a.id === 2).name };
+  editAnimal(5); document.getElementById('f-custom-name').value = ''; saveAnimal();
+  const dee = animals.find(a => a.id === 5).name, dupToast = document.getElementById('toast').textContent;
+  editingId = null; resetFormUI(); const s = document.getElementById('f-species'); s.value = 'Dune Raptor'; onSpeciesChange();
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'Twin', { status: 'Dead' }), __mk8(2, 2, 'Moa', 'M', 'Wild', 'Twin', { status: 'Breed' })],
+    pairs: { Moa: [{ m: 'Twin', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  return { ...afterRename, dee, dupToast: /already exists/.test(dupToast), loadSlot: pairsMap.Moa[0].m, livingTwin: animals[1].status, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('with two animals of one name, a rename moves nothing of the other, a repeated generated name is refused, and the loader keeps the living twin in the slot',
+  !twins.error && twins.slot === 'Twin' && twins.kidP1 === 'Twin' && twins.renamed === 'Twin Two' && twins.dee === 'Dee' && twins.dupToast
+  && twins.loadSlot === 'Twin' && twins.livingTwin === 'Breed', JSON.stringify(twins));
+// A file with a parent loop (A is B's parent and B is A's) loads and stays editable; only a changed parent is checked, a new loop is
+// still refused, and a refused new animal uses up no ID number
+const loopFile = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 A', { p1: 'BM02 B' }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 B', { p1: 'BM01 A' }),
+    __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 C', { p1: 'BM01 A' })] }); migrateMemory();
+  showTab('lineage'); updateLineageSelector(); const tree = !!buildLineageTree('BM01 A', 0, 4);
+  showTab('entry'); editAnimal(1); document.getElementById('f-notes').value = 'edited'; saveAnimal();
+  const notes = animals.find(a => a.id === 1).notes;
+  editAnimal(1); document.getElementById('f-p2').value = 'BM03 C'; saveAnimal();
+  const loopToast = document.getElementById('toast').textContent, p2 = animals.find(a => a.id === 1).p2;
+  editingId = null; resetFormUI();
+  const before = { bm: nextSpAid.BM, last: _lastAnimalId, n: animals.length }, s = document.getElementById('f-species');
+  s.value = 'Moa'; onSpeciesChange(); document.getElementById('f-sex').value = 'M'; document.getElementById('f-bloodline').value = 'Wild';
+  document.getElementById('f-custom-name').value = 'Selfie'; document.getElementById('f-p1').value = 'Selfie'; saveAnimal();
+  const refused = { bm: nextSpAid.BM, last: _lastAnimalId, n: animals.length, toast: document.getElementById('toast').textContent };
+  resetFormUI(); s.value = 'Dune Raptor'; onSpeciesChange();
+  return { tree, notes, p2, loop: /BM03 C descends/.test(loopToast), sameCounter: refused.bm === before.bm && refused.last === before.last && refused.n === before.n,
+    ownParent: /own parent/.test(refused.toast), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a file with a parent loop loads and can be edited, a new loop is refused, and a refused new animal uses no ID number', !loopFile.error && loopFile.tree
+  && loopFile.notes === 'edited' && loopFile.loop && loopFile.p2 === '' && loopFile.sameCounter && loopFile.ownParent, JSON.stringify(loopFile));
+// Undo after 🪦 puts the animal back only where it was: not into a row that moved or a slot that was taken (it becomes Reserve then),
+// and an unpaired Breed animal gets Breed back
+const undo = await ev(`(() => { try {
+  const herd = () => [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 X', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'BM02 A', { status: 'Breed' }),
+    __mk8(3, 3, 'Moa', 'F', 'Wild', 'BM03 B', { status: 'Breed' }), __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 Z', { status: 'Keep' }), __mk8(5, 5, 'Moa', 'M', 'Wild', 'BM05 Solo', { status: 'Breed' })];
+  const where = n => pairsMap.Moa.map((p, i) => p.m === n || p.f === n ? i : -1).filter(i => i >= 0).join() || 'none';
+  applyData({ version: 7, herd: herd(), pairs: { Moa: [{ m: 'BM01 X', f: 'BM02 A' }, { m: '', f: 'BM03 B' }] }, pairCounts: { Moa: 2 } }); migrateMemory();
+  markDead(1); let u = _toastUndo; deletePairRow('Moa', 0); u();
+  const rowMoved = [animals[0].status, where('BM01 X'), pairsMap.Moa[0].m].join();
+  applyData({ version: 7, herd: herd(), pairs: { Moa: [{ m: 'BM01 X', f: 'BM02 A' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  markDead(1); u = _toastUndo; updatePair('Moa', 0, 'm', 'BM04 Z'); u();
+  const taken = [animals[0].status, where('BM01 X'), pairsMap.Moa[0].m].join();
+  markDead(5); u = _toastUndo; u();
+  return { rowMoved, taken, solo: animals[4].status, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('Undo after 🪦 never puts an animal into a moved row or a taken slot, and gives an unpaired Breed animal Breed back', !undo.error
+  && undo.rowMoved === 'Reserve,none,' && undo.taken === 'Reserve,none,BM04 Z' && undo.solo === 'Breed', JSON.stringify(undo));
+// An animal of a species this version does not know gets no Assign buttons, and nothing places a Station animal
+const guards = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'constructor', 'M', 'Wild', 'Ctor', { status: 'Keep' }), __mk8(2, 2, 'Moa', 'M', 'Wild', 'BM02 Stored', { status: 'Station' })],
+    pairCounts: { Moa: 1 } }); migrateMemory();
+  viewAnimal(1); const assign = document.querySelectorAll('.view-pair-slot').length; closeViewPanel();
+  updatePair('constructor', 0, 'm', 'Ctor');
+  initPairs(); placeInSlot('Moa', 0, 'm', 'BM02 Stored');
+  return { assign, ownKey: Object.hasOwn(pairsMap, 'constructor'), slot: pairsMap.Moa[0].m, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('an unknown species gets no Assign buttons or pair slots, and a Station animal is never placed', !guards.error && guards.assign === 0 && !guards.ownKey && guards.slot === '', JSON.stringify(guards));
+// The ways of placing an animal from round one: the optimiser moves a proposed animal out of its other slot, "Just remove from pair"
+// in the placement panel turns Breed into Reserve, and a drop onto an occupied slot asks the right question and applies it
+const placing = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Best', { status: 'Breed', stats: __st24(9) }), __mk8(2, 2, 'Moa', 'M', 'Wild', 'BM02 Next', { stats: __st24(5) }),
+    __mk8(3, 3, 'Moa', 'F', 'Wild', 'BM03 F', { stats: __st24(8) }), __mk8(4, 4, 'Moa', 'F', 'Wild', 'BM04 F', { stats: __st24(6) })],
+    pairs: { Moa: [{ m: '', f: '' }, { m: 'BM01 Best', f: '' }] }, pairCounts: { Moa: 2 } }); migrateMemory();
+  showOptimizeModal('Moa'); applyOptimizeSinglePair(0, 0, { style: {} }); closeOptimizeModal();
+  const optimiser = pairsMap.Moa.flatMap(p => [p.m, p.f]).filter(n => n === 'BM01 Best').length + '@' + pairsMap.Moa[0].m;
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Old', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'M', 'Wild', 'BM02 New', { status: 'Keep' })],
+    pairs: { Moa: [{ m: 'BM01 Old', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showPairAssignPanel(2); confirmPairAssignment();
+  const panel = [animals[0].status, animals[1].status, pairsMap.Moa[0].m].join();
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'BM01 Bred', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'M', 'Wild', 'BM02 Kept', { status: 'Keep' }),
+    __mk8(3, 3, 'Moa', 'M', 'Wild', 'BM03 In', { status: 'Keep' }), __mk8(4, 4, 'Moa', 'M', 'Wild', 'BM04 In', { status: 'Keep' })],
+    pairs: { Moa: [{ m: 'BM01 Bred', f: '' }, { m: 'BM02 Kept', f: '' }] }, pairCounts: { Moa: 2 } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const drop = (pi, id, name) => { _pairDrag = { id, name, sex: 'M', sp: 'Moa', fromPool: true, fromPi: null, fromSex: null };
+    document.querySelector('.slot-outer[data-sp="Moa"][data-pi="' + pi + '"][data-sex="M"]').dispatchEvent(new Event('drop', { cancelable: true }));
+    const yes = document.getElementById('_cfm_yes'), q = yes?.closest('.opt-modal')?.querySelector('p')?.textContent || 'no question'; yes?.click(); return q; };
+  const q1 = drop(0, 3, 'BM03 In'), q2 = drop(1, 4, 'BM04 In');
+  return { optimiser, panel, q1, q2, dnd: animals.map(a => a.status).join() + '@' + pairsMap.Moa.map(p => p.m).join(), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the optimiser moves a proposed animal out of its other slot, the placement panel and a drop onto an occupied slot apply the leave-a-slot rule',
+  !placing.error && placing.optimiser === '1@BM01 Best' && placing.panel === 'Reserve,Breed,BM02 New'
+  && placing.q1 === 'Set BM01 Bred to Reserve and replace with BM03 In?' && placing.q2 === 'Replace BM02 Kept with BM04 In?'
+  && placing.dnd === 'Reserve,Keep,Breed,Breed@BM03 In,BM04 In', JSON.stringify(placing));
+// Re-review round. Twins: the slot follows the twin it belongs to when that one is renamed, and deleting a twin keeps the
+// slot only for a twin that fits it
+const twinSlots = await ev(`(() => { try {
+  const a = __moa24(1, 'M', 5, { status: 'Breed' });
+  applyData({ version: 7, herd: [a, { ...a, id: 2, status: 'Dead' }], pairs: { Moa: [{ m: a.name, f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  showTab('entry'); editAnimal(1); const fit = document.getElementById('stat-FIT'); fit.value = 9; onStatInput(fit, 'FIT'); saveAnimal();
+  const s = document.getElementById('f-species'); s.value = 'Dune Raptor'; onSpeciesChange();
+  const renamed = [pairsMap.Moa[0].m === animals[0].name, animals[0].name !== a.name].join();
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'Twin', { status: 'Breed' }), __mk8(2, 2, 'Moa', 'F', 'Wild', 'Twin', { status: 'Keep' })],
+    pairs: { Moa: [{ m: 'Twin', f: '' }] }, pairCounts: { Moa: 1 } }); migrateMemory();
+  deleteAnimal(1, true);
+  return { renamed, afterDelete: pairsMap.Moa[0].m, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a renamed twin keeps its slot under the new name, and deleting a twin empties a slot the other twin does not fit', !twinSlots.error
+  && twinSlots.renamed === 'true,true' && twinSlots.afterDelete === '', JSON.stringify(twinSlots));
+// Placement checks the slot's species and sex: a Buffalo dropped on a Moa slot, from its pool or its own slot, stays where it was,
+// and a female cannot be put in a ♂ slot
+const fits = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Buffalo', 'M', 'Wild', 'BF01 Pool', { status: 'Keep' }), __mk8(2, 2, 'Buffalo', 'M', 'Wild', 'BF02 Slot', { status: 'Breed' }),
+    __mk8(3, 3, 'Moa', 'F', 'Wild', 'BM03 Hen', { status: 'Keep' })], pairs: { Buffalo: [{ m: 'BF02 Slot', f: '' }] }, pairCounts: { Moa: 1, Buffalo: 1 } }); migrateMemory();
+  showTab('pairs'); renderPairs();
+  const target = () => document.querySelector('.slot-outer[data-sp="Moa"][data-pi="0"][data-sex="M"]');
+  _pairDrag = { id: 1, name: 'BF01 Pool', sex: 'M', sp: 'Buffalo', fromPool: true, fromPi: null, fromSex: null };
+  target().dispatchEvent(new Event('drop', { cancelable: true })); renderPairs();
+  _pairDrag = { id: 2, name: 'BF02 Slot', sex: 'M', sp: 'Buffalo', fromPool: false, fromPi: 0, fromSex: 'M' };
+  target().dispatchEvent(new Event('drop', { cancelable: true })); renderPairs();
+  const inPool = !!document.querySelector('.pair-pool[data-pool-sp="Buffalo"] .pool-tile[data-aid="1"]');
+  updatePair('Moa', 0, 'm', 'BM03 Hen');
+  return { moa: pairsMap.Moa[0].m, buffalo: pairsMap.Buffalo[0].m, inPool, statuses: animals.map(a => a.status).join(), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a drop or placement that does not fit the slot species or sex is refused and nothing moves', !fits.error && fits.moa === '' && fits.buffalo === 'BF02 Slot'
+  && fits.inPool && fits.statuses === 'Keep,Breed,Keep', JSON.stringify(fits));
+// Game import: a sex change takes the animal out of its slot; the summary says how many left a slot, and the log names the final status
+const importLeft = await ev(`(() => { try {
+  const file = ${JSON.stringify(fx.file([{ name: 'BM02 Mum', type: 'Moa', sex: 2, variation: 0, lineage: 'Wild', stats: [5, 5, 5, 5, 5, 5, 5] }]))};
+  const run = station => {
+    const m = __moa24(1, 'M', 5, { status: 'Breed' }), f = __moa24(2, 'F', 5, { status: 'Breed' });
+    applyData({ version: 7, herd: [m, f], pairs: { Moa: [{ m: m.name, f: f.name }] }, pairCounts: { Moa: 1 } }); migrateMemory(); logEntries = [];
+    showMountPreview(planMountImport(file), 'Mounts.json'); const box = document.getElementById('mount-preview');
+    if (station) box.querySelector('input[data-key="stationAll"]').checked = true;
+    [...box.querySelectorAll('button')].find(b => b.textContent === 'Confirm import').click();
+    const log = logEntries.filter(e => /left its pair slot/.test(e.msg)).map(e => e.msg).join(' | ');
+    return [pairsMap.Moa[0].f, animals[1].status, /1 left a pair slot/.test(document.getElementById('toast').textContent), log].join('#'); };
+  return { plain: run(false), station: run(true), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a sex change from a game import takes the animal out of its slot, the summary counts it, and the log names the final status', !importLeft.error
+  && /^#Reserve#true#.*now 🔶 Reserve$/.test(importLeft.plain) && /^#Station#true#.*now 🛸 On Station$/.test(importLeft.station), JSON.stringify(importLeft));
+// Names with & reach the log and the toast once escaped, so the log still links the animal
+const amp = await ev(`(() => { try {
+  applyData({ version: 7, herd: [__mk8(1, 1, 'Moa', 'M', 'Wild', 'Salt & Pepper', { status: 'Keep' })] }); migrateMemory(); logEntries = [];
+  setAnimalStatus(1, 'Breed'); setAdviceStatus(1, 'Reserve');
+  const toast = document.getElementById('toast').textContent;
+  showTab('log'); setLogFilter('all', document.querySelector('[data-log-filter="all"]')); renderLog();
+  const links = [...document.querySelectorAll('#log-list .view-name-link')].map(l => l.textContent);
+  return { toast, links: links.join('|'), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a name with & shows once in toasts and is linked in the log', !amp.error && /^Salt & Pepper → /.test(amp.toast) && amp.links === 'Salt & Pepper|Salt & Pepper', JSON.stringify(amp));
+
+await ev(`(() => { applyData(JSON.parse(window.__snap24)); migrateMemory(); saveAndRefreshFull(); showTab('herd'); document.getElementById('f-species').value = 'Dune Raptor'; onSpeciesChange(); return true; })()`);
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));
