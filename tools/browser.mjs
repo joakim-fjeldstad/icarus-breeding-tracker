@@ -15,8 +15,9 @@ const BROWSER_CANDIDATES = {
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /**
- * Start a headless browser and open `pageUrl`. Resolves to { ev, send, errors, close }.
+ * Start a headless browser and open `pageUrl`. Resolves to { ev, send, errors, reload, close }.
  * `ev(expr)` evaluates JavaScript in the page and returns its value; `errors` collects page exceptions and console errors.
+ * `reload()` reloads the page and waits until the app has loaded again.
  * `initScript` is JavaScript that runs in the page before any of its own scripts (used to freeze the clock).
  * Exits the process with code 2 when no browser can be started.
  */
@@ -93,17 +94,33 @@ export async function openPage(pageUrl, { width = 1600, height = 1200, initScrip
   await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
+  // Wait until the app has loaded, instead of a fixed delay. `extra` is a further condition on the page.
+  // Gives up after 15 s with an error, so checks never run against a page that did not load
+  const waitForApp = async (extra = 'true') => {
+    for (let i = 0; i < 75; i++) {
+      if (await ev(`document.readyState === 'complete' && typeof SPECIES_DATA === 'object' && (${extra})`).catch(() => false)) {
+        await sleep(300);
+        return;
+      }
+      await sleep(200);
+    }
+    throw new Error(`The app did not load within 15 s: ${pageUrl}`);
+  };
   await send('Page.navigate', { url: pageUrl });
-  // Wait until the app has loaded, instead of a fixed delay
-  for (let i = 0; i < 75; i++) {
-    if (await ev(`document.readyState === 'complete' && typeof SPECIES_DATA === 'object'`).catch(() => false)) break;
-    await sleep(200);
-  }
-  await sleep(300);
+  await waitForApp();
+  /**
+   * Reload the page, as a player closing and opening it again; browser storage and IndexedDB stay.
+   * Resolves once the new page has loaded: the marker set here is gone only from the new page
+   */
+  const reload = async () => {
+    await ev(`window.__beforeReload = true`);
+    await send('Page.reload', { ignoreCache: true });
+    await waitForApp('!window.__beforeReload');
+  };
   const close = async () => {
     finished = true; ws.close(); chrome.kill();
     await new Promise(r => { chrome.once('exit', r); setTimeout(r, 3000); });
     removeProfile();
   };
-  return { ev, send, errors, close };
+  return { ev, send, errors, reload, close };
 }

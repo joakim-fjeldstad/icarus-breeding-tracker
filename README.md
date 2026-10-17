@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.32-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.33-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -62,7 +62,7 @@ Already have animals parked at the station? [Import them from the game](#import-
 ## 💾 Where your data lives
 
 - **Your herd file.** Everything you enter is saved to `herd_data.json` in the folder you chose. The app saves automatically after every change; a small **💾 Saved** indicator appears in the top right. Back it up, copy it to another computer or share it with another player like any file.
-- **Browser storage.** If you skip the file (or use Firefox or Safari), the app keeps the data in the browser's own storage instead. Clearing site data deletes it, so export a CSV now and then. In this mode only the herd, pairs, pair counts, IDs, goals and sightings are saved; the log, card order, widths and collapsed state reset on reload.
+- **Browser storage.** If you skip the file (or use Firefox or Safari), the app keeps the data in the browser's own storage instead, the same data a herd file holds. Clearing site data deletes it, so save a backup now and then with **⬇ Download herd (JSON)** under ⚙ Settings. Chrome and Edge open that file from the startup screen; Import CSV restores the animals in any browser.
 - **The game's own file.** The import reads `Mounts.json` from the game's save folder. The tracker only reads it: it never changes, writes or exports game files, and it is not a save editor.
 - **Nothing leaves your computer.** No account, no telemetry, no requests to any server. The web version is a static page on GitHub Pages.
 
@@ -259,10 +259,10 @@ Good to know:
 
 ![Settings](screenshots/settings.png)
 
-- **Export CSV** writes the herd as a spreadsheet file; **Import CSV** restores or bulk-adds animals. Importing your own export again adds nothing. Rows with an unknown species or bloodline are ignored and counted
+- **Export CSV** writes the herd as a spreadsheet file; **Import CSV** restores or bulk-adds animals. Importing your own export again adds nothing. Rows with an unknown species or bloodline are ignored and counted. In a CSV without an `isBred` column, an animal with a known parent counts as bred
 - **Import from game**, see above
 - **Share your herd** renders an image of your animals (top 10 overall, the best of each species, the best of one chosen species, active breeders only, all active animals, or a custom selection) and copies it to the clipboard, with a download button as fallback
-- **Delete all data** clears the herd and the pair slots after a confirmation. Goals, pair counts, the log, sightings, ID numbering and your other settings are kept, so new animals continue from the old numbers. Export a CSV first
+- **Clear All Data** clears everything after a confirmation: animals, pairs, goals, ID counters, sightings, the log and the layout (card order, widths and collapsed cards), so the next animal of each species gets the first ID again. Only the log length setting is kept. **⬇ Download herd (JSON)** in the same card saves a backup of everything first; a CSV export holds only the animals
 - Links to report a bug, request a feature or view all issues on GitHub
 
 </details>
@@ -288,9 +288,9 @@ Good to know:
 
 ## ❓ FAQ and troubleshooting
 
-**There is no startup screen, or saving to a file does not work.** Firefox and Safari lack the File System Access API, so the app skips the startup screen and goes straight to browser storage. Use Chrome or Edge to save to a file. Browser storage keeps only the herd, pairs, pair counts, IDs, goals and sightings; the log, card order, widths and collapsed state reset on reload.
+**There is no startup screen, or saving to a file does not work.** Firefox and Safari lack the File System Access API, so the app skips the startup screen and goes straight to browser storage. Use Chrome or Edge to save to a file. Browser storage keeps the same data as a herd file until the browser's site data is cleared.
 
-**I opened the app and my herd is gone.** Check that you clicked **▶ Continue with herd_data.json** and allowed access when the browser asked. If you opened the file from a different folder or a cloud-synced copy, point the app at the right file. Browser storage data disappears when site data is cleared; a CSV export is your backup.
+**I opened the app and my herd is gone.** Check that you clicked **▶ Continue with herd_data.json** and allowed access when the browser asked. If you opened the file from a different folder or a cloud-synced copy, point the app at the right file. Browser storage data disappears when site data is cleared; **⬇ Download herd (JSON)** under ⚙ Settings is your backup.
 
 **How do I move to another computer?** Copy `herd_data.json` and open it from the startup screen on the other machine, or export a CSV and import it there. The CSV holds animals only, not goals, stars, pair slots or the log.
 

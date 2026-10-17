@@ -367,7 +367,8 @@ th .sort-arrow.on{color:var(--acc);opacity:1;}
 hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
 .empty-msg{color:var(--dim);text-align:center;padding:30px;font-style:italic;}
 .text-acc{color:var(--acc);}.text-dim{color:var(--dim);}
-#toast{position:fixed;bottom:24px;right:24px;background:var(--grn);color:#000;padding:10px 20px;border-radius:6px;font-weight:bold;font-size:14px;opacity:0;transform:translateY(10px);transition:opacity .2s,transform .2s;pointer-events:none;z-index:9999;}
+/* Above the startup screen (z-index 10000), so a storage warning shows while it is up; the Undo toast is this element too */
+#toast{position:fixed;bottom:24px;right:24px;background:var(--grn);color:#000;padding:10px 20px;border-radius:6px;font-weight:bold;font-size:14px;opacity:0;transform:translateY(10px);transition:opacity .2s,transform .2s;pointer-events:none;z-index:10001;}
 #toast.show{opacity:1;transform:translateY(0);}
 /* ── STARTUP MODAL ── */
 #startup-overlay{position:fixed;inset:0;background:rgba(10,12,26,.97);display:flex;align-items:center;justify-content:center;z-index:10000;}
@@ -920,7 +921,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
     <h2>&#x1F4CB; Activity Log</h2>
     <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
       <span style="font-size:11px;color:var(--dim);">Keep last</span>
-      <input type="number" id="log-max-input" value="100" min="10" max="9999"
+      <input type="number" id="log-max-input" value="100" min="10"
         style="width:64px;background:var(--inp);color:var(--wht);border:1px solid var(--bdr);border-radius:4px;padding:4px 8px;font-size:12px;outline:none;"
         onchange="updateLogMax(this.value)">
       <span style="font-size:11px;color:var(--dim);">entries</span>
@@ -957,16 +958,18 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
     <div class="entry-card" style="border-color:#5a1a1a;">
       <h2 style="color:var(--red);margin-bottom:12px;">🗑️ Clear All Data</h2>
       <p style="color:#aaa;margin-bottom:12px;line-height:1.6;font-size:13px;">
-        Permanently deletes <strong style="color:var(--wht)">all animals, pairs, and goals</strong>.
-        Your data file will be overwritten immediately. This cannot be undone.
+        Permanently deletes <strong style="color:var(--wht)">all animals, pairs, goals, ID counters, sightings, the log and the layout</strong>
+        (card order, card widths and collapsed cards). The next animal of each species gets the first ID again.
+        Your data file, or the browser's copy if you use browser storage, is overwritten immediately. This cannot be undone.
       </p>
       <div style="background:rgba(255,85,85,.08);border:1px solid #5a1a1a;border-radius:5px;padding:10px 14px;margin-bottom:14px;">
         <span style="color:var(--red);font-size:12px;font-weight:bold;">⚠ This action is final.</span>
-        <span style="color:#aaa;font-size:12px;"> Export a CSV first if you want a backup.</span>
+        <span style="color:#aaa;font-size:12px;"> Download the herd as JSON first if you want a backup. A CSV export holds only the animals.</span>
+        <div style="margin-top:10px;"><button class="btn-sm" onclick="downloadHerdJSON()">⬇ Download herd (JSON)</button></div>
       </div>
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;color:#bbb;font-size:13px;margin-bottom:14px;">
         <input type="checkbox" id="clear-confirm-checkbox" onchange="updateClearBtn()" style="width:16px;height:16px;accent-color:var(--red);">
-        I understand this will permanently delete all my herd data
+        I understand this permanently deletes all animals, pairs, goals, ID counters, sightings, the log and the layout
       </label>
       <button id="clear-all-btn" class="btn-danger" onclick="clearAllDataConfirmed()" disabled
         style="padding:10px 24px;font-size:13px;font-weight:bold;opacity:.35;cursor:not-allowed;">
@@ -1234,7 +1237,10 @@ const SPECIES_DATA = Object.assign(Object.create(null), {
 const CROSS_BREEDS = Object.create(null);   // no prototype, same reason as SPECIES_DATA
 
 // ── STORAGE KEYS ─────────────────────────────────────────────────
+// Browser storage keeps the whole data set (getAllData) under DATA. The other seven keys are what v0.32 and earlier kept;
+// they are read once, written into DATA and then removed
 const KEYS = {
+  DATA:        'icarus_data_v1',
   HERD:        'icarus_herd_v2',
   PAIRS:       'icarus_pairs_v2',
   GOALS:       'icarus_goals_v1',
@@ -1243,6 +1249,7 @@ const KEYS = {
   PHENO_STATS: 'icarus_pheno_stats_v1',    // { [sp]: { [label]: {tamed,bred} } }
   BL_STATS:    'icarus_bl_stats_v1',       // { [sp]: { [bloodline]: {tamed,bred} } }
 };
+const LEGACY_KEYS = Object.values(KEYS).filter(k => k !== KEYS.DATA);
 
 // ── APP STATE ────────────────────────────────────────────────────
 let animals = [], pairsMap = {}, goalsMap = {}, pairCounts = {}, phenoStats = {}, blStats = {};
@@ -1257,6 +1264,7 @@ let editingId = null;
 const collapsedPairSpecies  = new Set(); // in-memory; resets on reload
 let logEntries = []; // { ts, msg, type }
 let logMax = 100;
+const LOG_MAX_LIMIT = 1000;   // the most log entries kept: the Log tab's field, updateLogMax() and a loaded file all stop here
 let logFilter = 'all';
 let _optimizePlan = null; // holds last computed optimize plan
 let _optimizeTotalItems = 0; // total pair+suggestion rows in current modal
@@ -1585,13 +1593,15 @@ let _saveTimer  = null;
 // v4 – no schema change (cross-breeding was config + UI-only)
 // v5 – goals[]: species-level goals replace per-pair bl/ph; phenoWeights/blPriority extended to -3..3; statGoal added
 // v6 – rename 'Swamp Raptor' → 'Geothermal Raptor' in all animal, pair, and goal data
+// v7 – 'Swamp Pn' phenotype labels on Geothermal Raptor (v0.26 to v0.27b) become 'Geothermal Pn'
+// v8 – log messages are plain text; earlier versions stored some names in them HTML-escaped
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.32 – Goals, scoring and species visibility';
+const APP_VERSION  = 'v0.33 – Browser storage and Clear all data';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
-const DATA_VERSION = 7;
+const DATA_VERSION = 8;
 
-// The version of the data that was last loaded from disk/storage.
-// Set by applyData() and loadFromLocalStorage(); used by migrateMemory().
+// The version of the data in memory: set by applyData() to the loaded version, and to DATA_VERSION once migrateMemory() has run.
+// Used by migrateMemory().
 let loadedDataVersion = 0;
 
 // Internal animal IDs (a.id) are plain numbers that Delete, Edit, View and the status buttons find an animal by.
@@ -1638,7 +1648,9 @@ function getAllData() {
  */
 /** Sanitise a plain-text string from user data — strip to string, cap length */
 function _sanitizeStr(v, maxLen = 200) {
-  if (v === null || v === undefined) return '';
+  // Text, numbers and true/false only: String() on an object from a file can throw (a toString that is no function) or give
+  // "[object Object]"
+  if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') return '';
   // Control characters are dropped (tab and newline stay, for notes); the CSV export guards a leading tab or CR itself
   return String(v).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').slice(0, maxLen);
 }
@@ -1673,15 +1685,17 @@ function applyData(d) {
     // 1..MAX_SP_ID only: 1e300 is an integer too and would give names like DR1e+300. 0 means "assign one" in migrateMemory()
     spId:     Number.isInteger(a.spId) && a.spId >= 1 && a.spId <= MAX_SP_ID ? a.spId : 0,
     sp:       _sanitizeStr(a.sp),
-    sex:      _sanitizeStr(a.sex, 1),
+    sex:      a.sex === 'M' || a.sex === 'F' ? a.sex : '',   // like the CSV and game imports; anything else is unknown
     bl:       _validBloodline(a.bl),
     ph:       _sanitizeStr(a.ph),
     gen:      typeof a.gen === 'number' ? a.gen : 1,
     p1:       _sanitizeStr(a.p1),
     p2:       _sanitizeStr(a.p2),
     isBred:   !!a.isBred,
+    // A stat value that is no number or text counts as 0 like any other unusable value; parseInt() on an object can throw
     stats:    (a.stats && typeof a.stats === 'object' && !Array.isArray(a.stats))
-              ? Object.fromEntries(Object.entries(a.stats).map(([k,v]) => [String(k).slice(0,6), Math.max(0, Math.min(10, parseInt(v) || 0))]))
+              ? Object.fromEntries(Object.entries(a.stats).map(([k,v]) => [String(k).slice(0,6),
+                  Math.max(0, Math.min(10, (typeof v === 'number' || typeof v === 'string' ? parseInt(v) : 0) || 0))]))
               : {},
     total:    typeof a.total === 'number' ? a.total : 0,
     name:     _sanitizeStr(a.name),
@@ -1718,7 +1732,7 @@ function applyData(d) {
     msg:  _sanitizeStr(e.msg, 500),
     type: LOG_TYPES.includes(e.type) ? e.type : 'add',   // the type ends up in a class attribute
   })) : [];
-  logMax = typeof d.logMax === 'number' ? Math.max(10, Math.min(1000, d.logMax)) : 100;
+  logMax = typeof d.logMax === 'number' ? Math.max(10, Math.min(LOG_MAX_LIMIT, d.logMax)) : 100;
 }
 
 /** Write the full data snapshot to the chosen file */
@@ -1749,22 +1763,48 @@ function save() {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(writeFile, 400);
   } else {
-    localStorage.setItem(KEYS.HERD,        JSON.stringify(animals));
-    localStorage.setItem(KEYS.PAIRS,       JSON.stringify(pairsMap));
-    localStorage.setItem(KEYS.PAIR_COUNTS, JSON.stringify(pairCounts));
-    localStorage.setItem(KEYS.NEXT_SP_AID, JSON.stringify(nextSpAid));
+    writeBrowserData();
   }
 }
 
-function saveGoals() {
-  if (storageMode === 'file') { save(); return; }
-  localStorage.setItem(KEYS.GOALS, JSON.stringify(goalsMap));
-}
+// Goals and sightings are part of the one data set; both storage modes write all of it
+function saveGoals()      { save(); }
+function savePhenoStats() { save(); }
 
-function savePhenoStats() {
-  if (storageMode === 'file') { save(); return; }
-  localStorage.setItem(KEYS.PHENO_STATS, JSON.stringify(phenoStats));
-  localStorage.setItem(KEYS.BL_STATS,   JSON.stringify(blStats));
+// The seven keys of v0.32 and earlier as loaded ({ key: stored text }), or null. They are removed once the data set has been
+// written, and put back from here if removing them to make room did not help
+let _legacyKeys = null;
+// The stored text of browser storage that could not be read or loaded, or null. Nothing is written over it until Clear All Data,
+// and Download herd (JSON) saves this text unchanged
+let _unreadableBrowserData = null;
+let _browserSaveWarned = false;   // the save-failure toast shows once per session, counted once the startup screen is closed
+
+/** Browser storage: write the whole data set, the same object a file holds. Storage that is full or blocked must not stop the app */
+function writeBrowserData() {
+  if (_unreadableBrowserData !== null) return;
+  const text = JSON.stringify(getAllData());
+  const write = () => { try { localStorage.setItem(KEYS.DATA, text); return null; } catch (e) { return e; } };
+  const removeLegacy = () => { try { LEGACY_KEYS.forEach(k => localStorage.removeItem(k)); return true; } catch { return false; } };
+  let err = write();
+  // Upgrade from v0.32: the old keys hold the same herd, which is in memory now. A large herd does not fit twice, so make room
+  // and try once more. If that fails too, the old keys go back, so the next load still finds the herd
+  if (err && _legacyKeys && /quota/i.test(err.name || '')) {
+    removeLegacy();
+    err = write();
+    // Each key on its own, so one that does not fit does not keep the others out
+    if (err) Object.entries(_legacyKeys).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch { /* storage refused this one */ } });
+  }
+  if (err) {
+    console.warn('Browser storage save failed', err);
+    if (!_browserSaveWarned) {
+      // A failure while the startup screen is up (Migrate to file) warns but does not count, so the first save after it warns again
+      if ($id('startup-overlay')?.classList.contains('hidden')) _browserSaveWarned = true;
+      // After the current action, so the action's own toast does not replace this one at once
+      setTimeout(() => showToast('⚠ Browser storage is full or blocked: changes are not saved. Use ⬇ Download herd (JSON) in ⚙ Settings', 6000), 0);
+    }
+    return;
+  }
+  if (_legacyKeys && removeLegacy()) _legacyKeys = null;
 }
 
 /**
@@ -1805,7 +1845,7 @@ function migrateMemory() {
         // The per-pair goals now live in the species goals; initGoals() drops the old list
       }
       if (!g.blPriority) g.blPriority = {};
-      // Browser storage always loads as version 1, so this runs on every such load: only an absent star gets the default
+      // Browser storage up to v0.32 loaded as version 1 and ran this on every load, so only an absent star gets the default
       if (!Object.hasOwn(g.blPriority, 'Unstable')) g.blPriority.Unstable = 2;
     }
     dirty = true;
@@ -1849,6 +1889,14 @@ function migrateMemory() {
     }
   }
 
+  // ── v7 → v8: log messages become plain text ──────────────────────
+  // Some messages stored a name HTML-escaped, and the log escapes again when it shows them, so O'Hara read O&#39;Hara.
+  // One pass, so a name that held "&lt;" itself (stored as "&amp;lt;") gets back exactly that
+  if (loadedDataVersion < 8) {
+    const ENT = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+    logEntries.forEach(e => { e.msg = e.msg.replace(/&(?:amp|lt|gt|quot|#39);/g, m => ENT[m]); });
+  }
+
   // ── Always-run baseline: fill required fields on all animals ──────
   // Reserve every ID in use first, so an animal without one never gets a taken number
   _reserveSpIds();
@@ -1878,6 +1926,10 @@ function migrateMemory() {
   // the Goals tab stays until the next load. Then the defaults and bounds; a stat goal moved into range is saved once
   if (_cleanLoadedGoals()) dirty = true;
   if (initGoals()) dirty = true;
+
+  // Memory is now at DATA_VERSION, so a second run (Migrate to file runs this before closeStartup() does) repeats no step;
+  // the v7 → v8 unescape must happen only once
+  loadedDataVersion = DATA_VERSION;
 
   // If anything changed, persist immediately so the file is up to date
   if (dirty) save();
@@ -1910,12 +1962,61 @@ function _cleanLoadedGoals() {
   return changed;
 }
 
-/** Load from localStorage (fallback / legacy) */
+/**
+ * What browser storage holds, or null when nothing is stored or storage is blocked:
+ * - { data, raw, legacy }: data is the DATA key, or else a data set built from the seven keys of v0.32 and earlier; legacy is
+ *   then those keys as stored ({ key: text }). raw is the stored text (for the old keys, that object as JSON), kept unchanged
+ *   for Download herd (JSON) if the data cannot be loaded
+ * - { unreadable: raw }: the DATA key holds text that is no data set (cut off, for example). The old keys are not read then
+ * The flags live outside data, so nothing a stored data set contains can make the old keys look loaded
+ */
+function readBrowserData() {
+  const get   = k => { try { return localStorage.getItem(k); } catch { return null; } };
+  const parse = s => { try { return JSON.parse(s); } catch { return null; } };
+  // The new key wins. If an older copy of the tracker wrote the old keys after it, they are ignored and never removed
+  const raw = get(KEYS.DATA);
+  // An empty value holds nothing to protect, so it counts as nothing stored; locking saves over it would gain nothing
+  if (raw !== null && raw !== '') {
+    const d = parse(raw);
+    return d && typeof d === 'object' && !Array.isArray(d) ? { data: d, raw, legacy: null } : { unreadable: raw };
+  }
+  const legacy = {};
+  for (const k of LEGACY_KEYS) { const v = get(k); if (v !== null) legacy[k] = v; }
+  if (!Object.keys(legacy).length) return null;
+  const old = k => parse(legacy[k] ?? 'null');
+  // The old keys predate the version field and kept only these seven fields
+  return { legacy, raw: JSON.stringify(legacy), data: { version: 1, herd: old(KEYS.HERD) || [], pairs: old(KEYS.PAIRS) || {}, goals: old(KEYS.GOALS) || {},
+    pairCounts: old(KEYS.PAIR_COUNTS) || {}, nextSpAid: old(KEYS.NEXT_SP_AID) || {}, phenoStats: old(KEYS.PHENO_STATS) || {}, blStats: old(KEYS.BL_STATS) || {} } };
+}
+
+/** Browser storage holds animals or log entries worth moving to a file, or data it cannot read (Migrate then says so).
+ * A store emptied by Clear All Data holds neither */
+function browserDataToMigrate() {
+  const r = readBrowserData();
+  if (r?.unreadable !== undefined) return true;
+  const d = r?.data;
+  return !!d && ((Array.isArray(d.herd) && d.herd.length > 0) || (Array.isArray(d.logEntries) && d.logEntries.length > 0));
+}
+
+/**
+ * Load from browser storage. It goes through applyData like a file, so the same checks apply. Data that cannot be read or
+ * loaded is left as it is: memory stays empty, nothing is written over it, and Settings can download its stored text or clear it
+ */
 function loadFromLocalStorage() {
-  // Browser storage predates the version field; it goes through applyData like a file, so the same checks apply
-  const read = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-  applyData({ version: 1, herd: read(KEYS.HERD) || [], pairs: read(KEYS.PAIRS) || {}, goals: read(KEYS.GOALS) || {}, pairCounts: read(KEYS.PAIR_COUNTS) || {},
-    nextSpAid: read(KEYS.NEXT_SP_AID) || {}, phenoStats: read(KEYS.PHENO_STATS) || {}, blStats: read(KEYS.BL_STATS) || {} });
+  const r = readBrowserData();
+  _legacyKeys = r?.legacy || null;
+  _unreadableBrowserData = r?.unreadable ?? null;
+  if (_unreadableBrowserData === null) {
+    try {
+      applyData(r ? r.data : { version: DATA_VERSION, herd: [] });
+      return;
+    } catch (e) {
+      console.warn('Browser storage could not be loaded', e);
+      _unreadableBrowserData = r?.raw ?? '';
+    }
+  }
+  applyData({ version: DATA_VERSION, herd: [] });
+  showToast('⚠ Browser storage could not be read and is left as it is, so changes are not saved. Download or clear it in ⚙ Settings', 6000);
 }
 
 // ── INDEXEDDB: persist file handle across sessions ────────────────
@@ -1959,9 +2060,8 @@ async function initStorage() {
     return;
   }
 
-  // Show migrate option if localStorage has data
-  const hasLS = !!(localStorage.getItem(KEYS.HERD));
-  if (hasLS) document.getElementById('migrate-row').style.display = 'block';
+  // Show migrate option if browser storage has data
+  if (browserDataToMigrate()) document.getElementById('migrate-row').style.display = 'block';
 
   // Try to restore previously chosen file handle
   const stored = await getHandleFromDB();
@@ -1989,6 +2089,7 @@ async function continueWithStoredFile() {
     applyData(_pd);
     fileHandle  = handle;
     storageMode = 'file';
+    _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
     closeStartup();
   } catch (e) {
     showToast('Could not open file — pick it again');
@@ -2010,6 +2111,7 @@ async function openExistingFile() {
     applyData(_pd2);
     fileHandle  = handle;
     storageMode = 'file';
+    _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
     await storeHandleInDB(handle);
     closeStartup();
   } catch (e) {
@@ -2025,6 +2127,7 @@ async function createNewFile() {
     });
     fileHandle  = handle;
     storageMode = 'file';
+    _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
     await storeHandleInDB(handle);
     // Write empty initial data
     const w = await handle.createWritable();
@@ -2037,8 +2140,12 @@ async function createNewFile() {
 }
 
 async function migrateFromLocalStorage() {
-  // Read from localStorage, write to a new file, then clear localStorage
+  // Read from browser storage, write to a new file, then clear browser storage
   loadFromLocalStorage();
+  if (_unreadableBrowserData !== null) return;   // its toast says why; nothing is written or cleared
+  // Up to date before the first write, so the file never holds old data under the new version number. This saves the browser
+  // copy too, as any load in browser storage does; it is cleared below once the file exists
+  migrateMemory();
   try {
     const handle = await window.showSaveFilePicker({
       suggestedName: 'herd_data.json',
@@ -2050,8 +2157,8 @@ async function migrateFromLocalStorage() {
     fileHandle  = handle;
     storageMode = 'file';
     await storeHandleInDB(handle);
-    // Clear old localStorage keys
-    Object.values(KEYS).forEach(k => localStorage.removeItem(k));
+    // Clear browser storage: the data set and the keys of earlier versions
+    try { Object.values(KEYS).forEach(k => localStorage.removeItem(k)); } catch { /* blocked storage: nothing to clear */ }
     showToast('✅ Migrated to file storage!');
     closeStartup();
   } catch (e) {
@@ -2835,7 +2942,7 @@ function applyOptimizeSingleSuggestion(planIdx, suggIdx, btn) {
   else if (s.action === 'reserve') tgt.status = 'Reserve';
   syncPairSlots(tgt);   // a culled or stored animal that still sits in a pair slot leaves it
   const label = { cull:'Dead/Culled', store:'On Station', reserve:'Reserve', keep:'Keep' }[s.action] || s.action;
-  const msg = `⚡ ${$h(displayName(tgt))} → ${label}`;
+  const msg = `⚡ ${displayName(tgt)} → ${label}`;   // plain text: the log escapes it, the toast sets it as text
   addLog(msg, 'status');
   showToast(msg);
   saveAndRefresh();
@@ -4135,6 +4242,7 @@ function fmtLogTime(ts) {
 
 /**
  * Append an entry to the activity log.
+ * msg is plain text: the log escapes it when it shows it and the banner sets it as text, so callers never escape it.
  * type: 'add' | 'edit' | 'status' | 'pair' | 'delete' | 'suggestion'
  * Auto-trims to logMax entries, persists state, and updates the banner.
  */
@@ -4170,8 +4278,9 @@ function _linkifyLogMsg(msg) {
   const sorted = animals.slice().sort((a,b) => b.name.length - a.name.length);
   sorted.forEach(a => {
     const safeSearch = $h(a.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // A function, not a string: a name holding $` $& or $$ would otherwise be read as a replacement pattern
     result = result.replace(new RegExp(`(?<![\\w-])${safeSearch}(?![\\w-])`, 'g'),
-      `<span class="view-name-link" onclick="viewAnimal(${a.id})">${$h(a.name)}</span>`);
+      () => `<span class="view-name-link" onclick="viewAnimal(${a.id})">${$h(a.name)}</span>`);
   });
   return result;
 }
@@ -4206,7 +4315,8 @@ function setLogFilter(f, btn) {
 }
 
 function updateLogMax(val) {
-  logMax = Math.max(10, parseInt(val) || 100);
+  logMax = Math.max(10, Math.min(LOG_MAX_LIMIT, parseInt(val) || 100));
+  const lm = $id('log-max-input'); if (lm) lm.value = logMax;   // the field shows the number that is kept
   if (logEntries.length > logMax) logEntries = logEntries.slice(0, logMax);
   save();
 }
@@ -4729,8 +4839,8 @@ function reviveAnimal(id) {
   const a = animals.find(x => x.id === id);
   if (!a) return;
   a.status = '?';
-  addLog(`↩ ${$h(displayName(a))} restored from dead/culled`, 'status');
-  saveAndRefresh(); showToast(`${$h(displayName(a))} restored`);
+  addLog(`↩ ${displayName(a)} restored from dead/culled`, 'status');
+  saveAndRefresh(); showToast(`${displayName(a)} restored`);
 }
 
 /** Toggle favorite status on an animal — favorites are never suggested for culling */
@@ -4745,9 +4855,9 @@ function toggleFavorite(id) {
   save();
   renderHerd();
   showToast(a.favorite
-    ? `⭐ ${$h(displayName(a))} favorited — won\'t be suggested for culling`
-    : `${$h(displayName(a))} unfavorited`);
-  addLog(a.favorite ? `⭐ ${$h(displayName(a))} favorited` : `${$h(displayName(a))} unfavorited`, 'edit');
+    ? `⭐ ${displayName(a)} favorited — won\'t be suggested for culling`
+    : `${displayName(a)} unfavorited`);
+  addLog(a.favorite ? `⭐ ${displayName(a)} favorited` : `${displayName(a)} unfavorited`, 'edit');
 }
 
 function editAnimal(id) {
@@ -4809,13 +4919,14 @@ function setAdviceStatus(id, status) {
 function deleteAnimal(id, quiet) {
   const a = animals.find(x => x.id === id);
   if (!a) return;
-  if (!quiet && !confirm(`Permanently delete "${$h(a.name)}"?\nTip: use 🪦 to mark as Dead instead.`)) return;
+  // The dialog shows plain text, so the name is not escaped; line breaks from a file are shown as spaces
+  if (!quiet && !confirm(`Permanently delete "${a.name.replace(/\s+/g, ' ')}"?\nTip: use 🪦 to mark as Dead instead.`)) return;
   const delName = a.name;
   animals = animals.filter(x => x.id !== id);
   syncPairSlots(a, true);   // another animal with the same name that can still be paired keeps the slot
   saveAndRefreshFull();
   showToast('Animal deleted');
-  addLog(`Ὕ1 Deleted ${delName}`, 'delete');
+  addLog(`\u{1F5D1} Deleted ${delName}`, 'delete');
 }
 
 function cancelEdit() {
@@ -5281,14 +5392,47 @@ function _roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+/**
+ * Clear All Data: an empty data set goes through applyData like a loaded file, so every field getAllData() holds is reset
+ * (animals, pairs, goals, ID counters, sightings, the log and the layout) and nothing is left to give the next animal a
+ * surprising ID. Only the log length setting stays. File storage overwrites the file and keeps using it; browser storage
+ * keeps its key, now holding the empty set
+ */
 function clearAllDataConfirmed() {
   const cb = $id('clear-confirm-checkbox');
   if (!cb?.checked) return;
-  animals = []; pairsMap = {};
-  saveAndRefreshFull();
+  // An edit in progress points at an animal that is gone; saving it would add nothing
+  if (editingId !== null) { editingId = null; $id('save-btn').textContent = '💾 Save Animal'; $id('cancel-edit-btn').style.display = 'none'; resetFormUI(); }
+  dismissPairAssign();
+  _unreadableBrowserData = null;   // browser storage that could not be loaded is replaced now, as the player asked
+  applyData({ version: DATA_VERSION, herd: [], logMax });
+  migrateMemory();
+  initPairs();
+  saveAndRefreshFull();   // migrateMemory() saves only what changed, so save here as well
+  updateName();           // the name preview shows the first ID again
+  const banner = $id('log-banner');
+  if (banner) banner.style.display = 'none';
   cb.checked = false;
   updateClearBtn();
   showToast('All data cleared');
+}
+
+/**
+ * Download everything the app keeps as herd_data.json, the same file file storage writes and Open existing data file reads.
+ * In browser storage that could not be read or loaded, the stored text is downloaded unchanged under another name instead
+ */
+function downloadHerdJSON() {
+  const unreadable = storageMode === 'localStorage' && _unreadableBrowserData !== null;
+  const text = unreadable ? _unreadableBrowserData : JSON.stringify(getAllData(), null, 2);
+  const name = unreadable ? 'herd_data-unreadable.json' : 'herd_data.json';
+  const blob = new Blob([text], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const el   = document.createElement('a');
+  el.href = url; el.download = name; el.click();
+  // Firefox and Safari start the download after click() returns, so the URL must outlive it
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  showToast(unreadable ? 'Downloaded the browser storage this version could not open, as herd_data-unreadable.json'
+                       : 'Herd downloaded as herd_data.json');
 }
 
 // ── PAIRS ────────────────────────────────────────────────────────
@@ -5985,7 +6129,7 @@ function importCSV(e) {
       // raw is the ID as written, for the name-prefix rewrite (extra leading zeros, numbers too big to round-trip)
       return (m && n > 0 && m[1].toUpperCase() === getShort(sp)) ? { n, raw: m[0] } : null;
     };
-    const iSp = header.indexOf('species'), iId = header.indexOf('spId');
+    const iSp = header.indexOf('species'), iId = header.indexOf('spId'), hasIsBred = header.includes('isBred');
     // IDs the file claims per species: a row that needs a fresh ID must not take one a later row keeps
     const csvIds = new Map();
     rows.slice(1).forEach(cols => {
@@ -6038,14 +6182,17 @@ function importCSV(e) {
       seen.set(`${sp}#${spId}`, name);
       preNames.add(`${sp}|${name}`);
       const level = parseInt(get('level'));
+      const p1 = get('parent1'), p2 = get('parent2');
+      // A CSV without an isBred column (older exports, hand-made files) counts an animal with a known parent as bred, like the form
+      const isBred = hasIsBred ? get('isBred') === '1' : !!((p1 && p1 !== 'Unknown') || (p2 && p2 !== 'Unknown'));
       animals.push({
         id: newAnimalId(),
         spId, sp, sex: sexOk,
         bl, ph,
-        gen: parseInt(get('gen')) || 1, p1: get('parent1'), p2: get('parent2'),
+        gen: parseInt(get('gen')) || 1, p1, p2,
         stats, total: getTotal(stats, sp),
         name, nickname: get('nickname'),
-        favorite: get('favorite') === '1', isBred: get('isBred') === '1',
+        favorite: get('favorite') === '1', isBred,
         ...(level > 0 ? { level: Math.min(50, level) } : {}),
         status, notes: get('notes', 500)
       });
@@ -6533,13 +6680,6 @@ function importMounts(e) {
   reader.readAsText(file);
 }
 
-function clearAllData() {
-  if (!confirm('Delete ALL animal data?')) return;
-  animals = []; pairsMap = {};
-  saveAndRefreshFull();
-  showToast('All data cleared');
-}
-
 // ── TABS ─────────────────────────────────────────────────────────
 function showTab(id, _btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -6553,17 +6693,18 @@ function showTab(id, _btn) {
   if (id === 'pairs')   renderPairs();
   if (id === 'goals')   renderGoals();
   if (id === 'lineage') { updateLineageSelector(); renderLineage(); }
-  if (id === 'log')     { $id('log-max-input').value = logMax; renderLog(); }
+  if (id === 'log')     { const lm = $id('log-max-input'); lm.max = LOG_MAX_LIMIT; lm.value = logMax; renderLog(); }
   updateLogBanner();
 }
 
 // ── TOAST ────────────────────────────────────────────────────────
 let toastTimer;
-function showToast(msg) {
+/** Show msg as text for ms milliseconds (longer for warnings the player must not miss) */
+function showToast(msg, ms = 2500) {
   const t = $id('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 /**

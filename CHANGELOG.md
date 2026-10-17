@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.33 – Browser storage and Clear all data
+**2026-10-17**
+
+Implements #27, and items 11 and 16 of #32.
+
+### Changes
+- Browser storage keeps everything a herd file holds, under one key: the log, the card order, card widths and collapsed cards now survive a reload, as do the herd, pairs, goals, ID counters and sightings (#27)
+- Browser storage from earlier versions is moved to the new key on the first load and the old keys are removed once it is written. If the browser has no room for both, the old keys are removed first, and put back if the herd still does not fit. Older versions of the tracker do not read the new key (#27)
+- If an older copy of the tracker writes browser storage after this version has, the new key still wins: the old keys are ignored and never removed (#27)
+- Clear All Data clears everything: animals, pairs, goals, ID counters, sightings, the log and the layout, so the next animal of each species gets the first ID again. Only the log length setting stays. A herd file is overwritten with the empty set and stays in use (#27)
+- The Clear All Data card and its confirm label say exactly what is cleared, and a new **⬇ Download herd (JSON)** button there saves everything as `herd_data.json` before you clear it (#27)
+- After Clear All Data the startup screen no longer offers to migrate the emptied browser storage (#27)
+- When browser storage is full or blocked, a message says once per session that changes are not saved and points to Download herd (JSON). Messages now show above the startup screen too (#27)
+- Browser storage that cannot be read or loaded (a cut-off value, for example) is left as it is: the app starts with an empty herd, saves nothing over it and says so; Download herd (JSON) saves the stored text unchanged as `herd_data-unreadable.json`, and Clear All Data replaces it (#27)
+- The log keeps at most 1,000 entries; the Log tab's field stops there too (#27)
+
+### Fixes
+- A CSV without an `isBred` column imports animals with a known parent as bred instead of tamed, like the New Animal form; a CSV with the column keeps its value (#27)
+- A herd file with a sex other than M or F loads with the sex empty, like the CSV and game imports (#27)
+- A herd file with an object where text belongs loads with that text empty instead of failing (#27)
+- Browser storage that the browser blocks no longer stops the app at startup or when it saves (#27)
+- Migrate data from browser storage brings the data up to date before it writes the file, so the file never holds old data under the new version number (#27)
+- Log messages and toasts show a name with an apostrophe, & or < once instead of as `&#39;` and the like. Log text is stored as plain text, and log entries saved by older versions are unescaped once on load (data version 8) (#32)
+- A name containing `$&`, `$$` or a dollar sign before a backtick shows once in the Log tab, instead of repeating parts of the entry (#27)
+- The Delete confirmation shows a name as written, without `&#39;` and the like (#32)
+- The log entry for a deleted animal starts with 🗑 instead of a garbled character (#32)
+
+---
+
 ## v0.32 – Goals, scoring and species visibility
 **2026-10-11**
 
