@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 
 ---
 
+## v0.34 – File saves safe against data loss
+**2026-10-17**
+
+Implements #28.
+
+### Changes
+- A save to the herd file that fails keeps every change in the tab, and its message offers **Retry** and **Save as new file**. Until a save works again, **⚠ Not saved** stays where **💾 Saved** flashes. Browser storage that is full or blocked shows the same marker; its message still shows once per session (#28)
+- **Save as new file** writes the herd as the tab holds it to a file you pick (it suggests `herd_data-copy.json`), and the app saves there from then on. It does not use the very file this tab may not save to while that file still holds data. If the browser has already emptied it, this tab's herd is saved there, and a message says what was lost and what to do in the other tab (#28)
+- A file saved by a newer version of the tracker (a data version above 8) opens read-only: the herd shows, a message says why, and nothing is saved back to it, so the newer data is not lost. Save as new file keeps your changes in a file of this version. A herd in a file named like the game's `Mounts.json` opens read-only too, so it can be moved to a herd file of its own but is never written there again (#28)
+- Opening a file from an older version still updates it. When it does, a message offers **Download original**, which gives the file as it was, as `herd_data-v<version>-backup.json` (#28)
+- Leaving the page while a save waits, runs or has failed makes the browser ask before the page closes; choose Stay so the save can finish (#28)
+- A recovery copy: when the page closes before a save to the file has finished, the herd as the tab held it is kept in browser storage and offered the next time that file is opened. If the file is as it was, **Restore** brings the changes back and saves them; if the file has changed since, the copy is never applied but can be downloaded as `herd_data-recovery.json`. **Discard** removes it. Browser storage mode does not use it (#28)
+- The startup screen says next to **✨ Start fresh** that the save dialog replaces a file you pick, so the new file needs a name of its own (#28)
+
+### Fixes
+- A change made less than 400 ms before the tab is hidden, switched away or minimised is saved: the waiting save runs at once. A change made just before the tab is closed is kept as a recovery copy and offered at the next start (#28)
+- Saves to the file run one at a time, so two can no longer overlap. Saves asked for during a write become one write after it, with the latest data (#28)
+- Two tabs on one file no longer overwrite each other without a word. Before saving, the app checks whether the file's time or size changed after this tab read or wrote it, which also catches an older copy put back by a sync tool. If so it saves nothing and offers **Reload from file** and **Save as new file** (#28)
+- The save dialog of Start fresh, Migrate data from browser storage and Save as new file replaces the file you pick: the operating system asks first, and Chrome and Edge empty the file as soon as you confirm, so pick a new name. The app also refuses to use a file named like the game's `Mounts.json`, and, in browsers that do not empty the picked file, one that still holds a Mounts file or a herd from a newer version. Start fresh refuses any herd that is still there: open that one with **📂 Open existing data file** (#28)
+- Cancelling the file dialog of Migrate data from browser storage no longer leaves the browser herd in memory, so Start fresh after it writes an empty herd (#28)
+- A herd file that fails to load partway through leaves the herd in memory as it was, from Open existing data file and Continue alike (#28)
+
+Known limit: on a drive that stores file times in 2-second steps (FAT32, many USB sticks), a change by another tab within 2 seconds of this tab's save that leaves the file the same size is not noticed.
+
+---
+
 ## v0.33 – Browser storage and Clear all data
 **2026-10-17**
 
