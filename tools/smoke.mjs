@@ -11,7 +11,7 @@ import { openPage, sleep } from './browser.mjs';
 import { fx } from './fixtures.mjs';
 
 const page = pathToFileURL(resolve(process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..', 'index.html'))).href;
-const { ev, errors, close } = await openPage(page);
+const { ev, send, errors, reload, close } = await openPage(page);
 
 const results = [];
 const check = (name, ok, detail = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  (' + detail + ')' : ''}`);
@@ -457,7 +457,7 @@ const badJson = await ev(`(() => { try { planMountImport('{"nope":1}'); return '
 check('mount import explains a file without SavedMounts', /SavedMounts/.test(badJson), badJson);
 const tooMany = await ev(`(() => { try { planMountImport(JSON.stringify({ SavedMounts: new Array(MOUNT_MAX_ENTRIES + 1).fill({}) })); return 'no error'; } catch (e) { return e.message; } })()`);
 check('mount import rejects a file with too many entries before parsing', /Too many/.test(tooMany), tooMany);
-const importSrc = readFileSync(fileURLToPath(page), 'utf8').split('// ── IMPORT FROM GAME')[1]?.split('function clearAllData')[0] || '';
+const importSrc = readFileSync(fileURLToPath(page), 'utf8').split('// ── IMPORT FROM GAME')[1]?.split('// ── TABS')[0] || '';
 check('mount import path uses no write APIs', importSrc.length > 1000 && !/createWritable|showSaveFilePicker|showDirectoryPicker/.test(importSrc), `${importSrc.length} chars`);
 // Confirm through the modal itself: untick one new animal, mark one missing animal Dead
 await ev(`applyData(JSON.parse(window.__snap)); migrateMemory(); animals.find(x => x.sp === 'Slinker').nickname = 'Bucephalus'; animals.find(x => x.sp === 'Slinker').status = 'Station'; animals.find(x => x.sp === 'Shaggy Zebra' && x.status === 'Station').nickname = 'Oldie'; animals[3].id = 1234.5678; saveAndRefreshFull(); true`);
@@ -745,7 +745,7 @@ check('600 animals saved in one go get 600 different internal IDs', !idLoop.erro
 const idTwins = await ev(`(() => { try {
   applyData({ version: 7, herd: [__mk8(5, 1, 'Moa', 'M', 'Wild', 'BM01 Twin A'), __mk8(5, 2, 'Moa', 'F', 'Wild', 'BM02 Twin B'), __mk8('x', 3, 'Moa', 'M', 'Bold', 'BM03 Text Id')] }); migrateMemory();
   const ids = animals.map(a => a.id);
-  const saved = JSON.parse(localStorage.getItem(KEYS.HERD) || '[]').map(a => a.id);
+  const saved = (JSON.parse(localStorage.getItem(KEYS.DATA) || '{}').herd || []).map(a => a.id);
   const twinA = animals.find(a => a.name === 'BM01 Twin A'), firstKeeps = twinA.id === 5;
   deleteAnimal(twinA.id, true);
   return { ids, distinct: new Set(ids).size, finite: ids.every(Number.isFinite), firstKeeps, saved: saved.length === 3 && new Set(saved).size === 3 && saved.every(Number.isFinite),
@@ -1482,6 +1482,444 @@ check('the Pairs label for a herd that cannot be bred changes once a card is ope
   && unbredLabel.after === 'No animals yet:', JSON.stringify(unbredLabel));
 
 await ev(`(() => { applyData(JSON.parse(window.__snap25)); migrateMemory(); saveAndRefreshFull(); showTab('herd'); document.getElementById('f-species').value = 'Dune Raptor'; onSpeciesChange(); return true; })()`);
+
+// ── #27: browser storage keeps every field, and Clear All Data clears every field ──────────────────────────────────
+// With #32 items 11 and 16: log and toast text is escaped once, and the delete log entry shows the wastebasket.
+// Each check below fails on v0.32. The checks that reload the page come last, because a reload drops what earlier checks left in the page
+const MK27 = `const mk = (id, spId, sp, sex, bl, name, extra = {}) => ({ id, spId, sp, sex, bl, ph: '', gen: 1, p1: '', p2: '', stats: {}, name, status: '?', notes: '', ...extra });`;
+
+// A herd file can come from anyone: sex is 'M', 'F' or empty, as the CSV and game imports already make it
+const sexLoad = await ev(`(() => { ${MK27} try {
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 A'), mk(2, 2, 'Moa', 'F', 'Wild', 'BM02 B'), mk(3, 3, 'Moa', 'X', 'Wild', 'BM03 C'),
+    mk(4, 4, 'Moa', 'm', 'Wild', 'BM04 D'), mk(5, 5, 'Moa', '<', 'Wild', 'BM05 E'), mk(6, 6, 'Moa', 7, 'Wild', 'BM06 F'), mk(7, 7, 'Moa', 'MF', 'Wild', 'BM07 G')] }); migrateMemory();
+  return { sexes: animals.map(a => a.sex).join(), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a herd file with an unexpected sex loads with sex empty (#27)', !sexLoad.error && sexLoad.sexes === 'M,F,,,,,', JSON.stringify(sexLoad));
+
+// A CSV without an isBred column counts an animal with a known parent as bred, like the New Animal form; a CSV with the column keeps its value
+await ev(`(() => { applyData({ version: DATA_VERSION, herd: [] }); migrateMemory(); return true; })()`);
+const noIsBred = await importText('species,sex,bloodline,parent1,parent2\nMoa,F,Wild,BM01 Dad,BM02 Mum\nMoa,M,Wild,Unknown,\nMoa,M,Bold,,\nMoa,F,Alpha,,BM02 Mum');
+const bredNoCol = await ev(`animals.map(a => a.isBred).join()`);
+const withIsBred = await importText('species,sex,bloodline,parent1,parent2,isBred\nMoa,F,Hardy,BM01 Dad,BM02 Mum,\nMoa,M,Stout,,,1');
+const bredWithCol = await ev(`animals.slice(4).map(a => a.isBred).join()`);
+check('a CSV without an isBred column imports animals with a known parent as bred, and a CSV with the column keeps its value (#27)',
+  bredNoCol === 'true,false,false,true' && bredWithCol === 'false,true', JSON.stringify({ bredNoCol, bredWithCol, noCol: noIsBred.msg, withCol: withIsBred.msg }));
+
+// Log messages are plain text, escaped once where they are shown; toasts set their text as text
+const NICK = `O'Hara & <Co>`;
+const apos = await ev(`(() => { ${MK27} try {
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa', { nickname: ${JSON.stringify(NICK)} })] }); migrateMemory();
+  toggleFavorite(1);
+  const favLog = logEntries[0].msg, favToast = document.getElementById('toast').textContent, banner = document.getElementById('log-banner-msg').textContent;
+  // The optimiser's single-suggestion Apply, with a one-item plan as the Optimize modal would hold it
+  _optimizePlan = [{ suggestions: [{ animal: { id: 1 }, action: 'reserve' }] }];
+  applyOptimizeSingleSuggestion(0, 0, document.createElement('button'));
+  const optLog = logEntries[0].msg, optToast = document.getElementById('toast').textContent;
+  animals[0].status = 'Dead'; reviveAnimal(1);
+  const revLog = logEntries[0].msg, revToast = document.getElementById('toast').textContent;
+  showTab('log'); setLogFilter('all', document.querySelector('[data-log-filter="all"]')); renderLog();
+  const shown = [...document.querySelectorAll('#log-list .log-entry-msg')].map(el => el.textContent);
+  showTab('herd');
+  return { favLog, favToast, banner, optLog, optToast, revLog, revToast, shown, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a name with an apostrophe, & and < shows once in the log, the log banner and the toasts (#32)', !apos.error
+  && apos.favLog === `⭐ ${NICK} favorited` && apos.banner === apos.favLog && apos.favToast.startsWith(`⭐ ${NICK} favorited`)
+  && apos.optLog === `⚡ ${NICK} → Reserve` && apos.optToast === apos.optLog
+  && apos.revLog === `↩ ${NICK} restored from dead/culled` && apos.revToast === `${NICK} restored`
+  && JSON.stringify(apos.shown) === JSON.stringify([apos.revLog, apos.optLog, apos.favLog]), JSON.stringify(apos));
+// Log text that a version 7 file stored escaped is unescaped once on load; a version 8 file is left as it is
+const logMig = await ev(`(() => { try {
+  applyData({ version: 7, herd: [], logEntries: [{ ts: 2, msg: '⭐ O&#39;Hara &amp;amp; &lt;Co&gt; favorited', type: 'edit' }, { ts: 1, msg: 'Name with &amp;lt; in it', type: 'add' }] });
+  migrateMemory();
+  const v7 = logEntries.map(e => e.msg);
+  applyData(JSON.parse(JSON.stringify(getAllData()))); migrateMemory();
+  const again = logEntries.map(e => e.msg);
+  applyData({ version: DATA_VERSION, herd: [], logEntries: [{ ts: 1, msg: 'A &amp; B', type: 'add' }] }); migrateMemory();
+  return { dataVersion: DATA_VERSION, v7, again, v8: logEntries[0].msg, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('log text a version 7 file stored escaped is unescaped once on load, and newer data is left as it is (#32)', !logMig.error && logMig.dataVersion === 8
+  && JSON.stringify(logMig.v7) === JSON.stringify([`⭐ O'Hara &amp; <Co> favorited`, 'Name with &lt; in it']) && JSON.stringify(logMig.again) === JSON.stringify(logMig.v7)
+  && logMig.v8 === 'A &amp; B', JSON.stringify(logMig));
+const delLog = await ev(`(() => { ${MK27} try {
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Gone')] }); migrateMemory();
+  deleteAnimal(1, true);
+  return { msg: logEntries[0].msg, first: 'U+' + logEntries[0].msg.codePointAt(0).toString(16).toUpperCase(), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a deleted animal is logged with the wastebasket (#32)', !delLog.error && delLog.msg === '\u{1F5D1} Deleted BM01 Gone', JSON.stringify(delLog));
+// The Delete confirmation is a plain-text dialog: the name is shown as written, on one line
+const DEL_NAME = `BM01 O'Hara\n\n& <Co>`;
+const delConfirm = await ev(`(() => { ${MK27} const orig = window.confirm; try {
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', ${JSON.stringify(DEL_NAME)})] }); migrateMemory();
+  let msg = ''; window.confirm = m => { msg = m; return false; };
+  deleteAnimal(1);
+  return { msg, kept: animals.length, error: '' }; } catch (e) { return { error: e.message }; } finally { window.confirm = orig; } })()`);
+check('the Delete confirmation shows the name as plain text on one line (#32)', !delConfirm.error && delConfirm.msg.startsWith(`Permanently delete "BM01 O'Hara & <Co>"?`)
+  && delConfirm.kept === 1, JSON.stringify(delConfirm));
+
+// An object where a file should hold text (one whose toString is no function makes String() throw) loads as empty text
+const objText = await ev(`(() => { ${MK27} try {
+  const bad = { toString: 1 };
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa', { nickname: bad, notes: bad, p1: [1, 2] })],
+    pairs: { Moa: [{ m: bad, f: 'BM01 Moa' }] }, logEntries: [{ ts: 1, msg: bad, type: 'add' }] }); migrateMemory();
+  const a = animals[0];
+  return { nickname: a.nickname, notes: a.notes, p1: a.p1, slot: pairsMap.Moa[0].m, msg: logEntries[0].msg, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a herd file with an object where text belongs loads with that text empty (#27)', !objText.error && objText.nickname === '' && objText.notes === ''
+  && objText.p1 === '' && objText.slot === '' && objText.msg === '', JSON.stringify(objText));
+// A stat value that is no number or text loads as 0, like any other unusable stat value
+const objStat = await ev(`(() => { ${MK27} try {
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa', { stats: { VIG: { toString: 1 }, FIT: [7], PHY: '6', REF: 5 } })] }); migrateMemory();
+  const s = animals[0].stats;
+  return { stats: [s.VIG, s.FIT, s.PHY, s.REF].join(), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('a herd file with an object as a stat value loads that stat as 0 (#27)', !objStat.error && objStat.stats === '0,0,6,5', JSON.stringify(objStat));
+
+// The Log tab links animal names with a function, so $\` $& and $$ in a name are text, not replacement patterns
+const DOLLAR = ['BM01 A$`B', 'BM02 C$&D'];
+const dollarLog = await ev(`(() => { ${MK27} try {
+  const [n1, n2] = ${JSON.stringify(DOLLAR)};
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', n1), mk(2, 2, 'Moa', 'F', 'Wild', n2)],
+    logEntries: [{ ts: 1, msg: n1 + ' and ' + n2 + ' paired', type: 'pair' }] }); migrateMemory();
+  showTab('log'); setLogFilter('all', document.querySelector('[data-log-filter="all"]')); renderLog();
+  const el = document.querySelector('#log-list .log-entry-msg');
+  const out = { text: el.textContent, links: el.querySelectorAll('.view-name-link').length, size: document.getElementById('log-list').innerHTML.length, error: '' };
+  showTab('herd'); return out; } catch (e) { return { error: e.message }; } })()`);
+check('a name holding $` or $& shows once in the Log tab, linked, and the list stays small (#27)', !dollarLog.error
+  && dollarLog.text === `${DOLLAR[0]} and ${DOLLAR[1]} paired` && dollarLog.links === 2 && dollarLog.size < 1000, JSON.stringify(dollarLog));
+
+// The log length stops at 1,000 entries in the field, in updateLogMax() and in a loaded file alike
+const logCap = await ev(`(() => { try {
+  const before = logMax; updateLogMax('5000'); const capped = logMax;
+  showTab('log'); const input = document.getElementById('log-max-input'), max = input.max, field = input.value;
+  updateLogMax(String(before)); showTab('herd');
+  return { capped, max, field, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the log keeps at most 1,000 entries, and the Log tab field stops there too (#27)', !logCap.error && logCap.capped === 1000 && logCap.max === '1000'
+  && logCap.field === '1000', JSON.stringify(logCap));
+
+// The Clear All Data card names everything it clears, and offers a JSON download of everything the app keeps
+const clearText = await ev(`(() => { try {
+  const card = document.getElementById('clear-all-btn').closest('.entry-card');
+  const label = document.getElementById('clear-confirm-checkbox').closest('label').textContent.replace(/\\s+/g, ' ');
+  const text = card.textContent.replace(/\\s+/g, ' ');
+  let blobText = null, name = null, revokedAtOnce = 0; const B = window.Blob, click = HTMLAnchorElement.prototype.click, revoke = URL.revokeObjectURL;
+  window.Blob = function (p, o) { blobText = p.join(''); return new B(p, o); };
+  HTMLAnchorElement.prototype.click = function () { name = this.download; };
+  URL.revokeObjectURL = () => { revokedAtOnce++; };
+  // Firefox and Safari start the download after click() returns, so the URL is revoked later, not in the same call
+  try { [...card.querySelectorAll('button')].find(b => /Download herd \\(JSON\\)/.test(b.textContent))?.click(); }
+  finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; URL.revokeObjectURL = revoke; }
+  return { label, text, name, revokedAtOnce, keys: blobText ? Object.keys(JSON.parse(blobText)).sort().join() : '', all: Object.keys(getAllData()).sort().join(), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+const CLEARED = ['animals', 'pairs', 'goals', 'ID counters', 'sightings', 'log', 'layout'];
+const missingText = CLEARED.filter(w => !clearText.text?.includes(w)), missingLabel = CLEARED.filter(w => !clearText.label?.includes(w));
+check('the Clear All Data text and its confirm label name everything it clears, and Download herd (JSON) saves herd_data.json with every field (#27)',
+  !clearText.error && !missingText.length && !missingLabel.length && /as JSON/.test(clearText.text) && clearText.name === 'herd_data.json' && clearText.keys === clearText.all
+  && clearText.revokedAtOnce === 0,
+  JSON.stringify({ missingText, missingLabel, name: clearText.name, revokedAtOnce: clearText.revokedAtOnce, keys: clearText.keys, error: clearText.error }));
+
+// File storage: Clear All Data writes the empty set to the file in use and keeps using it (a stand-in handle records the writes)
+const fileClear = await ev(`new Promise(res => { ${MK27} try {
+  const writes = [], handle = { name: 'synthetic.json', createWritable: async () => ({ write: async t => { writes.push(t); }, close: async () => {} }) };
+  storageMode = 'file'; fileHandle = handle;
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 File'), mk(2, 5, 'Moa', 'F', 'Alpha', 'BM05 File')], nextSpAid: { BM: 9 },
+    goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }] } }, phenoStats: { Moa: { [SPECIES_DATA.Moa.phenotypes[0].label]: { tamed: 2, bred: 0 } } },
+    logEntries: [{ ts: 1, msg: 'Synthetic entry', type: 'add' }], cardWidths: { Moa: 2 } }); migrateMemory();
+  showTab('settings'); const cb = document.getElementById('clear-confirm-checkbox'); cb.checked = true; updateClearBtn();
+  document.getElementById('clear-all-btn').click();
+  setTimeout(() => {
+    const last = writes.length ? JSON.parse(writes[writes.length - 1]) : {};
+    const out = { writes: writes.length, herd: (last.herd || [1]).length, log: (last.logEntries || [1]).length, goals: (last.goals?.Moa?.goals || [1]).length,
+      counter: last.nextSpAid?.BM, sightings: Object.keys(last.phenoStats || { x: 1 }).length, widths: Object.keys(last.cardWidths || { x: 1 }).length,
+      sameFile: fileHandle === handle, mode: storageMode, error: '' };
+    storageMode = 'localStorage'; fileHandle = null; showTab('herd');
+    res(out);
+  }, 900);
+} catch (e) { storageMode = 'localStorage'; fileHandle = null; res({ error: e.message }); } })`);
+check('Clear All Data in file storage writes the empty set to the same file and keeps using it (#27)', !fileClear.error && fileClear.writes >= 1
+  && fileClear.herd === 0 && fileClear.log === 0 && fileClear.goals === 0 && fileClear.counter === 1 && fileClear.sightings === 0 && fileClear.widths === 0
+  && fileClear.sameFile && fileClear.mode === 'file', JSON.stringify(fileClear));
+
+// Browser storage: Clear All Data resets every field getAllData() holds; only the log length setting stays
+const cleared = await ev(`(() => { ${MK27} try {
+  const label = SPECIES_DATA.Moa.phenotypes[0].label;
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Alpha', 'BM01 Dad', { status: 'Breed' }), mk(2, 2, 'Moa', 'F', 'Alpha', 'BM02 Mum', { status: 'Breed' }),
+      mk(3, 8, 'Moa', 'F', 'Bold', 'BM08 Kid', { isBred: true, gen: 2, p1: 'BM01 Dad', p2: 'BM02 Mum' }), mk(4, 3, 'Dune Raptor', 'M', 'Wild', 'DR03 Raptor')],
+    pairs: { Moa: [{ m: 'BM01 Dad', f: 'BM02 Mum' }] }, pairCounts: { Moa: 1 }, nextSpAid: { BM: 9, DR: 4 },
+    goals: { Moa: { goals: [{ bl: 'Alpha', ph: '' }], blPriority: { Alpha: 3 } } }, phenoStats: { Moa: { [label]: { tamed: 2, bred: 1 } } }, blStats: { Moa: { Alpha: { tamed: 2, bred: 0 } } },
+    logEntries: [{ ts: 1, msg: 'Synthetic entry', type: 'add' }], speciesOrder: ['Moa'], cardWidths: { Moa: 2 }, collapsedPairs: ['Moa'], collapsedGoalCards: ['Moa'],
+    collapsedGoalSecs: ['Moa::suggestions'], logMax: 60 }); migrateMemory(); initPairs(); saveAndRefreshFull(); updateLogBanner();
+  showTab('settings'); const cb = document.getElementById('clear-confirm-checkbox'); cb.checked = true; updateClearBtn();
+  document.getElementById('clear-all-btn').click();
+  const state = { herd: animals.length, log: logEntries.length, logMax, goals: goalsMap.Moa?.goals?.length ?? -1, alphaStar: goalsMap.Moa?.blPriority?.Alpha ?? null,
+    sightings: Object.keys(phenoStats).length + Object.keys(blStats).length, counters: [nextSpAid.BM, nextSpAid.DR].join(), order: speciesOrder.length,
+    widths: Object.keys(cardWidths).length, collapsed: collapsedPairSpecies.size + collapsedGoalCards.size + collapsedGoalSections.size,
+    filledSlots: Object.values(pairsMap).flat().filter(p => p.m || p.f).length, banner: document.getElementById('log-banner').style.display, unticked: !cb.checked };
+  showTab('entry'); editingId = null; resetFormUI();
+  document.getElementById('f-species').value = 'Moa'; onSpeciesChange();
+  document.getElementById('f-sex').value = 'F'; document.getElementById('f-bloodline').value = 'Wild'; saveAnimal();
+  const moa = animals[animals.length - 1];
+  return { ...state, newId: moa ? formatSpId(moa.sp, moa.spId) : '', error: '' };
+} catch (e) { return { error: e.message }; } finally { dismissPairAssign(); resetFormUI(); showTab('herd'); } })()`);
+check('Clear All Data empties animals, pairs, goals, ID counters, sightings, the log and the layout, and the next Moa is BM01 again (#27)', !cleared.error
+  && cleared.herd === 0 && cleared.log === 0 && cleared.goals === 0 && cleared.alphaStar === null && cleared.sightings === 0 && cleared.counters === '1,1'
+  && cleared.order === 0 && cleared.widths === 0 && cleared.collapsed === 0 && cleared.filledSlots === 0 && cleared.banner === 'none' && cleared.unticked
+  && cleared.logMax === 60 && cleared.newId === 'BM01', JSON.stringify(cleared));
+
+// A reload in browser storage keeps the log, the layout (species order, card widths, collapsed cards and sections), the goals and the pairs
+const reloadState = `JSON.stringify({ log: logEntries.map(e => e.msg), logMax, order: getSpeciesOrder(), widths: cardWidths, cp: [...collapsedPairSpecies],
+  cg: [...collapsedGoalCards], cs: [...collapsedGoalSections], goals: goalsMap.Moa.goals, pairs: pairsMap.Moa, herd: animals.map(a => a.name) })`;
+const beforeReload = await ev(`(() => { ${MK27} try {
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Alpha', 'BM01 Dad', { status: 'Breed' }), mk(2, 2, 'Moa', 'F', 'Alpha', 'BM02 Mum', { status: 'Breed' })],
+    pairs: { Moa: [{ m: 'BM01 Dad', f: 'BM02 Mum' }] }, pairCounts: { Moa: 1 } }); migrateMemory(); initPairs(); saveAndRefreshFull();
+  addSpeciesGoal('Moa'); updateSpeciesGoal('Moa', 0, 'bl', 'Alpha');
+  const order = getSpeciesOrder(); reorderSpecies(order[1], order[0]);
+  toggleCardWidth('Moa'); togglePairCollapse('Moa'); toggleGoalCard('Moa'); toggleGoalSection('Moa', 'suggestions');
+  updateLogMax(40); addLog('Synthetic note for the reload check', 'edit');
+  return ${reloadState}; } catch (e) { return JSON.stringify({ error: e.message }); } })()`);
+await reload();
+const afterReload = await ev(`(() => { try { useBrowserStorage(); return ${reloadState}; } catch (e) { return JSON.stringify({ error: e.message }); } })()`);
+const br = JSON.parse(beforeReload);
+check('browser storage keeps the log, the layout, the goals and the pairs over a reload (#27)', !br.error && afterReload === beforeReload
+  && br.log.includes('Synthetic note for the reload check') && br.logMax === 40 && br.widths.Moa === 2 && br.cp.includes('Moa') && br.cg.includes('Moa')
+  && br.cs.includes('Moa::suggestions') && br.goals.some(g => g.bl === 'Alpha') && br.pairs[0].m === 'BM01 Dad' && br.pairs[0].f === 'BM02 Mum',
+  afterReload === beforeReload ? beforeReload.slice(0, 200) : `before ${beforeReload.slice(0, 300)} | after ${afterReload.slice(0, 300)}`);
+
+// Browser storage from v0.32 (seven keys) is read into the one data set; the old keys go once it is written, and the next load reads the new key
+const OLD_KEYS_JS = '[KEYS.HERD, KEYS.PAIRS, KEYS.GOALS, KEYS.PAIR_COUNTS, KEYS.NEXT_SP_AID, KEYS.PHENO_STATS, KEYS.BL_STATS]';
+const SET_OLD_KEYS = `localStorage.clear(); const oldLabel = SPECIES_DATA.Moa.phenotypes[0].label;
+  localStorage.setItem(KEYS.HERD, JSON.stringify([{ id: 7, spId: 7, sp: 'Moa', sex: 'F', bl: 'Bold', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'BM07 Legacy', status: 'Breed', notes: '' }]));
+  localStorage.setItem(KEYS.PAIRS, JSON.stringify({ Moa: [{ m: '', f: 'BM07 Legacy' }] }));
+  localStorage.setItem(KEYS.GOALS, JSON.stringify({ Moa: { goals: [{ bl: 'Bold', ph: '' }] } }));
+  localStorage.setItem(KEYS.PAIR_COUNTS, JSON.stringify({ Moa: 1 }));
+  localStorage.setItem(KEYS.NEXT_SP_AID, JSON.stringify({ BM: 12 }));
+  localStorage.setItem(KEYS.PHENO_STATS, JSON.stringify({ Moa: { [oldLabel]: { tamed: 3, bred: 0 } } }));
+  localStorage.setItem(KEYS.BL_STATS, JSON.stringify({ Moa: { Bold: { tamed: 3, bred: 0 } } }));`;
+await ev(`(() => { ${SET_OLD_KEYS} return true; })()`);
+await reload();
+const oldKeys = await ev(`(() => { try {
+  const label = SPECIES_DATA.Moa.phenotypes[0].label, offered = document.getElementById('migrate-row').style.display === 'block';
+  useBrowserStorage();
+  const old = ${OLD_KEYS_JS}.filter(k => localStorage.getItem(k) !== null);
+  const stored = JSON.parse(localStorage.getItem(KEYS.DATA) || 'null');
+  return { offered, herd: animals.map(a => a.name).join(), slot: pairsMap.Moa?.[0]?.f, goal: goalsMap.Moa?.goals?.map(g => g.bl).join(), counter: nextSpAid.BM,
+    sighting: phenoStats.Moa?.[label]?.tamed, old, storedHerd: stored?.herd?.map(a => a.name).join() ?? null, storedSighting: stored?.phenoStats?.Moa?.[label]?.tamed ?? null, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+await reload();
+const oldKeysAgain = await ev(`(() => { try { useBrowserStorage(); return { herd: animals.map(a => a.name).join(), counter: nextSpAid.BM, goal: goalsMap.Moa?.goals?.map(g => g.bl).join(), error: '' }; }
+  catch (e) { return { error: e.message }; } })()`);
+check('browser storage from v0.32 moves from its seven keys into one, the old keys go once it is written, and the next load reads it (#27)', !oldKeys.error
+  && oldKeys.offered && oldKeys.herd === 'BM07 Legacy' && oldKeys.slot === 'BM07 Legacy' && oldKeys.goal === 'Bold' && oldKeys.counter === 12 && oldKeys.sighting === 3
+  && oldKeys.old.length === 0 && oldKeys.storedHerd === 'BM07 Legacy' && oldKeys.storedSighting === 3
+  && !oldKeysAgain.error && oldKeysAgain.herd === 'BM07 Legacy' && oldKeysAgain.counter === 12 && oldKeysAgain.goal === 'Bold', JSON.stringify({ oldKeys, oldKeysAgain }));
+
+// After Clear All Data the browser keeps the empty set: a reload finds nothing, and the startup screen offers nothing to migrate
+await ev(`(() => { showTab('settings'); const cb = document.getElementById('clear-confirm-checkbox'); cb.checked = true; updateClearBtn();
+  document.getElementById('clear-all-btn').click(); showTab('herd'); return true; })()`);
+await reload();
+const afterClear = await ev(`(() => { try {
+  const offered = document.getElementById('migrate-row').style.display === 'block';
+  useBrowserStorage();
+  return { offered, herd: animals.length, log: logEntries.length, goals: goalsMap.Moa?.goals?.length ?? -1, counter: nextSpAid.BM, sightings: Object.keys(phenoStats).length, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('after Clear All Data in browser storage a reload finds the empty set, and the startup screen offers nothing to migrate (#27)', !afterClear.error
+  && !afterClear.offered && afterClear.herd === 0 && afterClear.log === 0 && afterClear.goals === 0 && afterClear.counter === 1 && afterClear.sightings === 0,
+  JSON.stringify(afterClear));
+
+// Upgrade from v0.32 when the browser has no room for the herd twice. Storage that stays full: the old keys are put back, the
+// player is told once per session, and the next load still finds the herd (the first save failure in this page session)
+await ev(`(() => { ${SET_OLD_KEYS} return true; })()`);
+const quotaKeep = await ev(`new Promise(res => { const orig = Storage.prototype.setItem; const done = out => { Storage.prototype.setItem = orig; res(out); }; try {
+  Storage.prototype.setItem = function (k, v) { if (k === KEYS.DATA) throw new DOMException('Storage is full', 'QuotaExceededError'); return orig.call(this, k, v); };
+  const toastEl = document.getElementById('toast'); toastEl.textContent = '';
+  useBrowserStorage();
+  setTimeout(() => {
+    const toast = toastEl.textContent; toastEl.textContent = '';
+    addLog('A second save that fails', 'edit');
+    setTimeout(() => {
+      const toastAgain = toastEl.textContent, kept = ${OLD_KEYS_JS}.filter(k => localStorage.getItem(k) !== null).length;
+      const keptHerd = JSON.parse(localStorage.getItem(KEYS.HERD) || '[]').map(a => a.name).join();
+      Storage.prototype.setItem = orig;
+      useBrowserStorage();   // the next load, with room again
+      done({ toast, toastAgain, kept, keptHerd, herd: animals.map(a => a.name).join(), error: '' });
+    }, 50);
+  }, 50);
+} catch (e) { done({ error: e.message }); } })`);
+check('when the browser has no room for the upgraded herd, the old keys are put back, the player is told once, and the next load still reads them (#27)',
+  !quotaKeep.error && /full or blocked/.test(quotaKeep.toast) && quotaKeep.toastAgain === '' && quotaKeep.kept === 7 && quotaKeep.keptHerd === 'BM07 Legacy'
+  && quotaKeep.herd === 'BM07 Legacy', JSON.stringify(quotaKeep));
+// Room for the herd only without the old keys: they are removed first and the herd is written
+await ev(`(() => { ${SET_OLD_KEYS} return true; })()`);
+const quotaRetry = await ev(`(() => { const orig = Storage.prototype.setItem; try {
+  let refused = 0;
+  Storage.prototype.setItem = function (k, v) {
+    if (k === KEYS.DATA && this.getItem(KEYS.HERD) !== null) { refused++; throw new DOMException('Storage is full', 'QuotaExceededError'); }
+    return orig.call(this, k, v); };
+  useBrowserStorage();
+  Storage.prototype.setItem = orig;
+  const stored = JSON.parse(localStorage.getItem(KEYS.DATA) || 'null');
+  return { refused, old: ${OLD_KEYS_JS}.filter(k => localStorage.getItem(k) !== null), storedHerd: stored?.herd?.map(a => a.name).join() ?? null,
+    herd: animals.map(a => a.name).join(), error: '' };
+} catch (e) { Storage.prototype.setItem = orig; return { error: e.message }; } })()`);
+check('when the browser has room for the upgraded herd only without the old keys, they are removed first and the herd is written (#27)', !quotaRetry.error
+  && quotaRetry.refused >= 1 && quotaRetry.old.length === 0 && quotaRetry.storedHerd === 'BM07 Legacy' && quotaRetry.herd === 'BM07 Legacy', JSON.stringify(quotaRetry));
+// The new key wins over old keys an older copy of the tracker wrote later; those stay. Nothing in a stored data set marks them as loaded
+const newKeyWins = await ev(`(() => { ${MK27} try {
+  localStorage.clear();
+  localStorage.setItem(KEYS.DATA, JSON.stringify({ version: DATA_VERSION, legacyKeys: true, legacy: { [KEYS.HERD]: '[]' }, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 New')] }));
+  localStorage.setItem(KEYS.HERD, JSON.stringify([mk(2, 2, 'Moa', 'F', 'Wild', 'BM02 Old')]));
+  useBrowserStorage(); addLog('A save after the load', 'edit');
+  return { herd: animals.map(a => a.name).join(), oldKept: localStorage.getItem(KEYS.HERD) !== null, error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('the new key wins over old keys written later, which stay, and a stored data set cannot mark them as loaded (#27)', !newKeyWins.error
+  && newKeyWins.herd === 'BM01 New' && newKeyWins.oldKept, JSON.stringify(newKeyWins));
+
+// Migrate data from browser storage: the first file write already holds up-to-date data (a stand-in picker and handle record it)
+await ev(`(() => { localStorage.clear();
+  localStorage.setItem(KEYS.HERD, JSON.stringify([{ id: 3, spId: 3, sp: 'Swamp Raptor', sex: 'F', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'SR03 Old', status: '?', notes: '' }]));
+  localStorage.setItem(KEYS.GOALS, JSON.stringify({ 'Swamp Raptor': { goals: [], pairs: [{ bl: 'Bold', ph: '' }] } }));
+  return true; })()`);
+const toFile = await ev(`new Promise(res => { const picker = window.showSaveFilePicker, store = storeHandleInDB;
+  const done = out => { window.showSaveFilePicker = picker; storeHandleInDB = store; storageMode = 'localStorage'; fileHandle = null; res(out); };
+  try {
+    const writes = [], handle = { name: 'synthetic.json', createWritable: async () => ({ write: async t => { writes.push(t); }, close: async () => {} }) };
+    window.showSaveFilePicker = async () => handle; storeHandleInDB = async () => {};
+    migrateFromLocalStorage().then(() => {
+      const first = writes.length ? JSON.parse(writes[0]) : {};
+      done({ writes: writes.length, version: first.version, sp: first.herd?.[0]?.sp ?? null, goal: (first.goals?.['Geothermal Raptor']?.goals || []).map(g => g.bl).join(),
+        left: Object.values(KEYS).filter(k => localStorage.getItem(k) !== null).length, mode: storageMode, error: '' });
+    }, e => done({ error: e.message }));
+  } catch (e) { done({ error: e.message }); } })`);
+check('Migrate data from browser storage writes up-to-date data in its first file write (#27)', !toFile.error && toFile.writes >= 1 && toFile.version === 8
+  && toFile.sp === 'Geothermal Raptor' && toFile.goal === 'Bold' && toFile.left === 0 && toFile.mode === 'file', JSON.stringify(toFile));
+
+// While the startup screen is up a toast shows above it, and a save that fails during Migrate to file warns without using up the
+// once-per-session warning: the first save after "Use browser storage instead" (the load itself, before the edit) warns again
+await ev(`(() => { ${SET_OLD_KEYS} return true; })()`);
+await reload();
+const overlayToast = await ev(`(() => { try {
+  const overlay = document.getElementById('startup-overlay'), up = !overlay.classList.contains('hidden');
+  showToast('A toast while the startup screen is up');
+  const z = el => parseInt(getComputedStyle(el).zIndex) || 0;
+  return { up, toastZ: z(document.getElementById('toast')), overlayZ: z(overlay), error: '' }; } catch (e) { return { error: e.message }; } })()`);
+check('toasts show above the startup screen (#27)', !overlayToast.error && overlayToast.up && overlayToast.toastZ > overlayToast.overlayZ, JSON.stringify(overlayToast));
+const migrateWarn = await ev(`new Promise(res => { const orig = Storage.prototype.setItem, picker = window.showSaveFilePicker;
+  const done = out => { Storage.prototype.setItem = orig; window.showSaveFilePicker = picker; res(out); };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  (async () => {
+    Storage.prototype.setItem = function (k, v) { if (k === KEYS.DATA) throw new DOMException('Storage is full', 'QuotaExceededError'); return orig.call(this, k, v); };
+    window.showSaveFilePicker = async () => { throw new DOMException('cancelled', 'AbortError'); };
+    const toastEl = document.getElementById('toast');
+    await migrateFromLocalStorage(); await wait(50);
+    const duringMigrate = toastEl.textContent;
+    toastEl.textContent = ''; toastEl.classList.remove('show');
+    useBrowserStorage();
+    addLog('An edit after Use browser storage instead', 'edit');
+    await wait(50);
+    done({ duringMigrate, afterEdit: toastEl.textContent, shown: toastEl.classList.contains('show'), error: '' });
+  })().catch(e => done({ error: e.message }));
+})`);
+check('a save that fails while the startup screen is up warns but does not use up the warning, so saving after Use browser storage instead warns again (#27)',
+  !migrateWarn.error && /full or blocked/.test(migrateWarn.duringMigrate) && /full or blocked/.test(migrateWarn.afterEdit) && migrateWarn.shown, JSON.stringify(migrateWarn));
+
+// A data key that holds no data set (cut off here) is unreadable as well: the old keys are not read in its place, the stored text stays
+// byte for byte through a save attempt, and Download hands back exactly that text under another name
+const CUT = '{"version":8,"herd":[{"id":1,"spId":1,"sp":"Moa","name":"BM01 Cu';
+await ev(`(() => { localStorage.clear(); localStorage.setItem(KEYS.DATA, ${JSON.stringify(CUT)});
+  localStorage.setItem(KEYS.HERD, JSON.stringify([{ id: 2, spId: 2, sp: 'Moa', sex: 'F', bl: 'Wild', name: 'BM02 Old key', status: '?' }])); return true; })()`);
+const errsBeforeCut = errors.length;
+await reload();
+const cut = await ev(`(() => { try {
+  const offered = document.getElementById('migrate-row').style.display === 'block';
+  const toastEl = document.getElementById('toast'); toastEl.textContent = '';
+  useBrowserStorage();
+  const toast = toastEl.textContent, open = document.getElementById('startup-overlay').classList.contains('hidden'), herd = animals.length;
+  addLog('A save attempt', 'edit');
+  const same = localStorage.getItem(KEYS.DATA) === ${JSON.stringify(CUT)}, oldKept = localStorage.getItem(KEYS.HERD) !== null;
+  let blobText = null, name = null; const B = window.Blob, click = HTMLAnchorElement.prototype.click;
+  window.Blob = function (p, o) { blobText = p.join(''); return new B(p, o); }; HTMLAnchorElement.prototype.click = function () { name = this.download; };
+  try { downloadHerdJSON(); } finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; }
+  return { offered, toast, open, herd, same, oldKept, name, exact: blobText === ${JSON.stringify(CUT)}, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+const cutErrors = errors.splice(errsBeforeCut);
+check('a cut-off data set in browser storage is unreadable: the app starts empty and says so, the old keys are not read instead, the text stays byte for byte and Download hands it back (#27)',
+  !cut.error && cut.offered && /could not be read/.test(cut.toast) && cut.open && cut.herd === 0 && cut.same && cut.oldKept && cut.name === 'herd_data-unreadable.json'
+  && cut.exact && cutErrors.length === 0, JSON.stringify({ ...cut, errors: cutErrors.slice(0, 3) }));
+// After that refused load, a herd file opened from the startup screen is what Download saves, not the stale browser text
+const fileAfterRefused = await ev(`new Promise(res => { ${MK27} const picker = window.showOpenFilePicker, store = storeHandleInDB;
+  const done = out => { window.showOpenFilePicker = picker; storeHandleInDB = store; storageMode = 'localStorage'; fileHandle = null; res(out); };
+  (async () => {
+    const file = JSON.stringify({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 From file')] });
+    const handle = { name: 'synthetic.json', getFile: async () => ({ text: async () => file }), createWritable: async () => ({ write: async () => {}, close: async () => {} }) };
+    window.showOpenFilePicker = async () => [handle]; storeHandleInDB = async () => {};
+    await openExistingFile();
+    let blobText = null, name = null; const B = window.Blob, click = HTMLAnchorElement.prototype.click;
+    window.Blob = function (p, o) { blobText = p.join(''); return new B(p, o); }; HTMLAnchorElement.prototype.click = function () { name = this.download; };
+    try { downloadHerdJSON(); } finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; }
+    done({ mode: storageMode, name, herd: JSON.parse(blobText || '{}').herd?.map(a => a.name).join() ?? null, error: '' });
+  })().catch(e => done({ error: e.message }));
+})`);
+check('after a refused browser load, a herd file opened from the startup screen is what Download herd (JSON) saves (#27)', !fileAfterRefused.error
+  && fileAfterRefused.mode === 'file' && fileAfterRefused.name === 'herd_data.json' && fileAfterRefused.herd === 'BM01 From file', JSON.stringify(fileAfterRefused));
+// An empty value under the data key holds nothing to protect: the app starts as with nothing stored, and the next save writes the data set
+const emptyValue = await ev(`(() => { try {
+  localStorage.clear(); localStorage.setItem(KEYS.DATA, '');
+  const toastEl = document.getElementById('toast'); toastEl.textContent = '';
+  useBrowserStorage();
+  const toast = toastEl.textContent;
+  addLog('First save after an empty stored value', 'edit');
+  let stored = null; try { stored = JSON.parse(localStorage.getItem(KEYS.DATA)); } catch { /* not written */ }
+  return { toast, herd: animals.length, saved: !!stored?.logEntries?.some(e => e.msg === 'First save after an empty stored value'), error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('an empty value under the browser storage key starts the app as with nothing stored, and the next save writes the data set (#27)', !emptyValue.error
+  && emptyValue.toast === '' && emptyValue.herd === 0 && emptyValue.saved, JSON.stringify(emptyValue));
+
+// Browser storage that cannot be loaded is left as it is: the app starts with an empty herd and says so, Migrate to file and saves write
+// nothing over it, Download herd (JSON) saves it, and Clear All Data replaces it. A stand-in applyData refuses the stored set, so the check
+// does not depend on any one field that makes loading fail
+await ev(`(() => { localStorage.clear(); localStorage.setItem(KEYS.DATA, JSON.stringify({ version: DATA_VERSION, herd: [{ id: 1, spId: 1, sp: 'Moa', sex: 'F',
+  bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', name: 'BM01 Kept', status: '?', notes: '', stats: {} }] })); return true; })()`);
+const errsBeforeUnreadable = errors.length;
+await reload();
+const unreadable = await ev(`(async () => { const picker = window.showSaveFilePicker, apply = applyData; try {
+  applyData = d => { if (d?.herd?.[0]?.name === 'BM01 Kept') throw new TypeError('stand-in for data that cannot be loaded'); return apply(d); };
+  const stored = localStorage.getItem(KEYS.DATA);
+  let pickerCalls = 0; window.showSaveFilePicker = async () => { pickerCalls++; throw new DOMException('cancelled', 'AbortError'); };
+  await migrateFromLocalStorage();
+  window.showSaveFilePicker = picker;
+  const toastEl = document.getElementById('toast'); toastEl.textContent = '';
+  useBrowserStorage();
+  const toast = toastEl.textContent, open = document.getElementById('startup-overlay').classList.contains('hidden'), herd = animals.length;
+  addLog('A change that must not be saved over it', 'edit');
+  const untouched = localStorage.getItem(KEYS.DATA) === stored;
+  let blobText = null, name = null; const B = window.Blob, click = HTMLAnchorElement.prototype.click;
+  window.Blob = function (p, o) { blobText = p.join(''); return new B(p, o); }; HTMLAnchorElement.prototype.click = function () { name = this.download; };
+  try { downloadHerdJSON(); } finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; }
+  const downloadedAsStored = blobText === stored;
+  showTab('settings'); const cb = document.getElementById('clear-confirm-checkbox'); cb.checked = true; updateClearBtn();
+  document.getElementById('clear-all-btn').click(); showTab('herd');
+  const replaced = JSON.parse(localStorage.getItem(KEYS.DATA) || '{}').herd?.length === 0;
+  return { pickerCalls, toast, open, herd, untouched, name, downloadedAsStored, replaced, error: '' };
+} catch (e) { return { error: e.message }; } finally { window.showSaveFilePicker = picker; applyData = apply; } })()`);
+const unreadableErrors = errors.splice(errsBeforeUnreadable);
+check('browser storage that cannot be loaded is left as it is: the app starts empty and says so, nothing is written over it, Download saves it and Clear All Data replaces it (#27)',
+  !unreadable.error && unreadable.pickerCalls === 0 && /could not be read/.test(unreadable.toast) && unreadable.open && unreadable.herd === 0 && unreadable.untouched
+  && unreadable.name === 'herd_data-unreadable.json' && unreadable.downloadedAsStored && unreadable.replaced && unreadableErrors.length === 0,
+  JSON.stringify({ ...unreadable, errors: unreadableErrors.slice(0, 3) }));
+
+// Storage the browser blocks (a privacy setting, for example) must not stop the app from starting, loading or saving.
+// Startup is judged before the check touches the app: the access must throw, and startup must have reported no exception
+const blockScript = (await send('Page.addScriptToEvaluateOnNewDocument', { source:
+  `Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new DOMException('Storage is blocked', 'SecurityError'); } });` })).result.identifier;
+const errsBeforeBlock = errors.length;
+await reload();
+const startupErrors = errors.slice(errsBeforeBlock);
+const blocked = await ev(`(async () => { ${MK27} try {
+  const isBlocked = (() => { try { localStorage.length; return false; } catch { return true; } })();
+  await initStorage();   // the startup check once more, awaited here, so a rejection shows up as this check's error
+  useBrowserStorage();
+  applyData({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Moa')] }); migrateMemory();
+  toggleFavorite(1); addSpeciesGoal('Moa'); addLog('Saved while storage is blocked', 'edit');
+  return { isBlocked, herd: animals.length, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: blockScript });
+const blockErrors = errors.splice(errsBeforeBlock);
+await reload();
+await ev(`useBrowserStorage(); true`);
+check('blocked browser storage does not stop the app from starting, loading or saving (#27)', !blocked.error && blocked.isBlocked && startupErrors.length === 0
+  && blocked.herd === 1 && blockErrors.length === 0, JSON.stringify({ ...blocked, startupErrors: startupErrors.slice(0, 2), errors: blockErrors.slice(0, 3) }));
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));
