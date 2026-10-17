@@ -1,6 +1,6 @@
 # 🦖 Icarus Breeding Tracker
 
-![version](https://img.shields.io/badge/version-v0.33-c87a1a?style=flat-square&labelColor=1d2019)
+![version](https://img.shields.io/badge/version-v0.34-c87a1a?style=flat-square&labelColor=1d2019)
 ![no install](https://img.shields.io/badge/no%20install-single%20file-6a7d50?style=flat-square&labelColor=1d2019)
 ![browser](https://img.shields.io/badge/browser-Chrome%20%2F%20Edge-4a7080?style=flat-square&labelColor=1d2019)
 ![data](https://img.shields.io/badge/data-stays%20on%20your%20computer-58615a?style=flat-square&labelColor=1d2019)
@@ -61,7 +61,9 @@ Already have animals parked at the station? [Import them from the game](#import-
 
 ## 💾 Where your data lives
 
-- **Your herd file.** Everything you enter is saved to `herd_data.json` in the folder you chose. The app saves automatically after every change; a small **💾 Saved** indicator appears in the top right. Back it up, copy it to another computer or share it with another player like any file.
+- **Your herd file.** Everything you enter is saved to `herd_data.json` in the folder you chose. The app saves automatically after every change, also when you switch away from the tab or minimise it right after one; a small **💾 Saved** indicator appears in the top right. If a save fails, it turns into **⚠ Not saved** until a save works again, and the message offers **Retry** and **Save as new file**, so nothing in the tab is lost. Leaving the page while a save is not done makes the browser ask first: choose Stay so the save can finish. If the page closes anyway, the change is kept as a recovery copy in the browser and offered the next time you open the file: **Restore** if the file is as you left it, otherwise **Download**, and **Discard** either way. That copy of the herd stays in the browser's storage until you restore or discard it, or use Clear All Data; a save to the file removes only a copy the same tab left behind itself, and clearing the browser's site data removes it too. Back it up, copy it to another computer or share it with another player like any file.
+- **The app does not save over data it has not seen.** If the file changed after the tab read it (in a second tab, or a sync tool put an older copy back), the app saves nothing and offers **Reload from file** or **Save as new file**. A file from a newer version of the tracker opens read-only, and so does a herd in a file named like the game's `Mounts.json`; **Save as new file** moves either to a herd file of its own. When a file from an older version is updated, a message offers the original as it was.
+- **Give a new file a name of its own.** **✨ Start fresh**, the migrate button and Save as new file create the file through a save dialog, which replaces a file you pick: the operating system asks first, and Chrome and Edge empty the file as soon as you confirm. Never pick a game file such as `Mounts.json`; the app refuses to use a file of that name, but the browser may already have emptied it.
 - **Browser storage.** If you skip the file (or use Firefox or Safari), the app keeps the data in the browser's own storage instead, the same data a herd file holds. Clearing site data deletes it, so save a backup now and then with **⬇ Download herd (JSON)** under ⚙ Settings. Chrome and Edge open that file from the startup screen; Import CSV restores the animals in any browser.
 - **The game's own file.** The import reads `Mounts.json` from the game's save folder. The tracker only reads it: it never changes, writes or exports game files, and it is not a save editor.
 - **Nothing leaves your computer.** No account, no telemetry, no requests to any server. The web version is a static page on GitHub Pages.
@@ -291,6 +293,8 @@ Good to know:
 **There is no startup screen, or saving to a file does not work.** Firefox and Safari lack the File System Access API, so the app skips the startup screen and goes straight to browser storage. Use Chrome or Edge to save to a file. Browser storage keeps the same data as a herd file until the browser's site data is cleared.
 
 **I opened the app and my herd is gone.** Check that you clicked **▶ Continue with herd_data.json** and allowed access when the browser asked. If you opened the file from a different folder or a cloud-synced copy, point the app at the right file. Browser storage data disappears when site data is cleared; **⬇ Download herd (JSON)** under ⚙ Settings is your backup.
+
+**The app says the file was changed in another tab or program.** The tracker is open in two tabs on the same file, or another program (a sync tool, for example) changed it. Nothing was saved over that change. Click **Reload from file** to continue with what the file holds now, or **Save as new file** to keep what this tab holds. Keep the tracker open in one tab at a time.
 
 **How do I move to another computer?** Copy `herd_data.json` and open it from the startup screen on the other machine, or export a CSV and import it there. The CSV holds animals only, not goals, stars, pair slots or the log.
 

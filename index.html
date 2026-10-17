@@ -383,11 +383,14 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
 .startup-box .btn-file.tertiary{background:none;color:var(--dim);font-size:12px;padding:8px;margin-top:4px;}
 .startup-box .btn-file.tertiary:hover{color:var(--wht);}
 .startup-box .file-note{font-size:11px;color:var(--dim);margin-top:16px;line-height:1.4;}
+.startup-box .fresh-note{font-size:11px;color:var(--dim);margin:-4px 0 12px;line-height:1.4;}
 .startup-box .file-name{color:var(--acc);font-family:monospace;font-size:12px;margin-top:8px;}
 .startup-box .migrate-note{font-size:11px;color:var(--grn);margin-top:12px;display:none;}
 .startup-box .migrate-note.show{display:block;}
 #save-indicator{position:fixed;top:8px;right:12px;font-size:11px;color:var(--grn);opacity:0;transition:opacity .4s;z-index:1000;pointer-events:none;}
 #save-indicator.show{opacity:1;}
+/* Lasting until a save succeeds (setUnsavedMarker) */
+#save-indicator.unsaved{opacity:1;color:var(--red);font-weight:bold;}
 
 /* ── FAVORITES & NICKNAMES ──────────────────────────────────── */
 .btn-fav{background:transparent;border:1px solid #444;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;color:#666;transition:color .15s,border-color .15s;line-height:1;}
@@ -601,6 +604,7 @@ hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}
     </div>
     <button class="btn-file secondary" onclick="openExistingFile()">📂 Open existing data file</button>
     <button class="btn-file secondary" onclick="createNewFile()">✨ Start fresh (create new file)</button>
+    <p class="fresh-note" id="fresh-note">Give the new file a name of its own: the save dialog replaces a file you pick, and the browser empties it as soon as you confirm.</p>
     <div id="migrate-row" style="display:none;">
       <button class="btn-file tertiary" onclick="migrateFromLocalStorage()">⬆ Migrate data from browser storage</button>
     </div>
@@ -1237,10 +1241,12 @@ const SPECIES_DATA = Object.assign(Object.create(null), {
 const CROSS_BREEDS = Object.create(null);   // no prototype, same reason as SPECIES_DATA
 
 // ── STORAGE KEYS ─────────────────────────────────────────────────
-// Browser storage keeps the whole data set (getAllData) under DATA. The other seven keys are what v0.32 and earlier kept;
-// they are read once, written into DATA and then removed
+// Browser storage keeps the whole data set (getAllData) under DATA. RECOVERY is file storage's recovery copy, written when the page
+// closes before a file save has finished; browser storage never reads or writes it. The other seven keys are what v0.32 and
+// earlier kept; they are read once, written into DATA and then removed
 const KEYS = {
   DATA:        'icarus_data_v1',
+  RECOVERY:    'icarus_recovery_v1',
   HERD:        'icarus_herd_v2',
   PAIRS:       'icarus_pairs_v2',
   GOALS:       'icarus_goals_v1',
@@ -1249,7 +1255,7 @@ const KEYS = {
   PHENO_STATS: 'icarus_pheno_stats_v1',    // { [sp]: { [label]: {tamed,bred} } }
   BL_STATS:    'icarus_bl_stats_v1',       // { [sp]: { [bloodline]: {tamed,bred} } }
 };
-const LEGACY_KEYS = Object.values(KEYS).filter(k => k !== KEYS.DATA);
+const LEGACY_KEYS = Object.values(KEYS).filter(k => k !== KEYS.DATA && k !== KEYS.RECOVERY);
 
 // ── APP STATE ────────────────────────────────────────────────────
 let animals = [], pairsMap = {}, goalsMap = {}, pairCounts = {}, phenoStats = {}, blStats = {};
@@ -1583,7 +1589,7 @@ function findParentAnimal(val, currentSp) {
 // storageMode: 'file' | 'localStorage'
 let storageMode = 'localStorage';
 let fileHandle  = null;
-let _saveTimer  = null;
+let _saveTimer  = null;   // the debounced file save waiting to run, or null
 
 // ── DATA VERSION ─────────────────────────────────────────────────
 // Bump this whenever a schema change requires a migration step below.
@@ -1596,7 +1602,7 @@ let _saveTimer  = null;
 // v7 – 'Swamp Pn' phenotype labels on Geothermal Raptor (v0.26 to v0.27b) become 'Geothermal Pn'
 // v8 – log messages are plain text; earlier versions stored some names in them HTML-escaped
 /** Single source of truth for the displayed app version — update this on every release. */
-const APP_VERSION  = 'v0.33 – Browser storage and Clear all data';
+const APP_VERSION  = 'v0.34 – File saves safe against data loss';
 document.addEventListener('DOMContentLoaded', () => { const el = document.getElementById('app-version'); if (el) el.textContent = APP_VERSION; });
 const DATA_VERSION = 8;
 
@@ -1735,18 +1741,131 @@ function applyData(d) {
   logMax = typeof d.logMax === 'number' ? Math.max(10, Math.min(LOG_MAX_LIMIT, d.logMax)) : 100;
 }
 
-/** Write the full data snapshot to the chosen file */
-async function writeFile() {
-  if (!fileHandle) return;
-  try {
-    const w = await fileHandle.createWritable();
-    await w.write(JSON.stringify(getAllData(), null, 2));
-    await w.close();
-    flashSaveIndicator();
-  } catch (e) {
-    console.error('File save failed', e);
-    showToast('⚠ Save failed — check file permissions');
+// What this tab knows about the file in use, kept with the handle it belongs to, so a handle set any other way starts with no
+// stamp and no limits. lastModified and size (in bytes) are the file's as this tab last read or wrote it (null when unknown);
+// version is the data version the file held when it was read; gameFile is set for a file named like a game save file; conflict
+// is set while saves are refused because the file changed. written is the text of this tab's last write while its time could not
+// be read back, so the next save can tell that write from another tab's
+let _fileState = { handle: null, lastModified: null, size: null, version: DATA_VERSION, gameFile: false, conflict: false, written: null };
+
+/** The state of the file in use, or null when the handle in use was set without one */
+function _fileStateNow() { return fileHandle && _fileState.handle === fileHandle ? _fileState : null; }
+function _setFileState(handle, lastModified, size, version = DATA_VERSION, gameFile = false) {
+  const num = v => (typeof v === 'number' ? v : null);
+  _fileState = { handle, lastModified: num(lastModified), size: num(size), version, gameFile, conflict: false, written: null };
+}
+/**
+ * The file in use is read-only: one from a newer version of the tracker (saving it as DATA_VERSION would drop what that version
+ * added; compared on the raw number, so a version of Infinity is read-only too), or one named like a game save file, which the
+ * tracker never writes
+ */
+function _fileReadOnly() { const s = _fileStateNow(); return !!s && (s.version > DATA_VERSION || s.gameFile); }
+/** A data version as messages and the backup file name show it: a whole number in 0..9999, whatever the file held */
+function _shownVersion(v) { const t = Math.trunc(v); return Number.isNaN(t) ? 0 : Math.max(0, Math.min(9999, t)); }
+
+/**
+ * Write text to a file handle. Returns { lastModified, size } of the file afterwards; lastModified is null when it cannot be
+ * read back. A write that fails is aborted, so the file keeps what it held
+ */
+async function _writeHandle(handle, text) {
+  const w = await handle.createWritable();
+  try { await w.write(text); await w.close(); }
+  catch (e) { try { await w.abort(); } catch { /* already closed */ } throw e; }
+  const size = new TextEncoder().encode(text).length;   // bytes, as File.size counts them
+  try { const f = await handle.getFile(); return { lastModified: typeof f.lastModified === 'number' ? f.lastModified : null, size }; }
+  catch { return { lastModified: null, size }; }
+}
+
+/** The file is not as this tab last read or wrote it: another tab or program saved it, or put an older copy back */
+async function _fileChanged(handle) {
+  const s = _fileStateNow();
+  if (!s || (s.lastModified === null && s.size === null)) return false;
+  const f = await handle.getFile();
+  if (s.size !== null && typeof f.size === 'number' && f.size !== s.size) return true;
+  if (s.lastModified === null || typeof f.lastModified !== 'number' || f.lastModified === s.lastModified) return false;
+  // Only the time differs. After a write whose time could not be read back that is this tab's own write, as long as the file
+  // still holds exactly what it wrote: take the time now and save
+  if (s.written !== null && await f.text() === s.written) {
+    s.lastModified = f.lastModified;
+    s.written = null;
+    return false;
   }
+  return true;
+}
+
+/**
+ * Record a write. A time that cannot be read back keeps the one before, so the next save checks the file instead of trusting
+ * it, and the written text is kept for that check
+ */
+function _stampAfterWrite(handle, written, text) {
+  if (_fileState.handle === handle) {
+    if (written.lastModified !== null) { _fileState.lastModified = written.lastModified; _fileState.written = null; }
+    else _fileState.written = text;
+    _fileState.size = written.size;
+    _fileState.conflict = false;
+  } else if (fileHandle === handle) _setFileState(handle, written.lastModified, written.size);
+}
+
+// File writes run one at a time, in order. Requests made while a write runs become one write after it, which saves the state
+// as it is then. A job that fails does not stop the ones after it
+let _writeChain = Promise.resolve();
+let _writeWaiting = false;   // a writeFile() is queued and has not started yet
+let _writeJobs = 0;          // writes queued or running
+
+/** Run job once the write in progress, if any, has finished. The returned promise never rejects */
+function _inWriteChain(job) {
+  _writeJobs++;
+  const run = async () => {
+    try { return await job(); }
+    catch (e) { console.warn('File write failed', e); }
+    finally { _writeJobs--; }
+  };
+  _writeChain = _writeChain.then(run, run);
+  return _writeChain;
+}
+
+/** Write the full data snapshot to the file in use. Resolves when it is written, refused or failed */
+function writeFile() {
+  if (_writeWaiting) return _writeChain;
+  _writeWaiting = true;
+  return _inWriteChain(() => { _writeWaiting = false; return _writeFileNow(); });
+}
+
+async function _writeFileNow() {
+  const handle = fileHandle;
+  if (!handle) return;
+  try {
+    if (_fileReadOnly()) { setUnsavedMarker(true); _showReadOnlyToast(); return; }
+    // Saving over a change this tab has not seen would lose it without a word
+    if (await _fileChanged(handle)) {
+      if (fileHandle !== handle) return;   // the player has moved to another file meanwhile
+      if (_fileState.handle === handle) _fileState.conflict = true;
+      setUnsavedMarker(true);
+      showActionToast('⚠ The file was changed in another tab or program after this tab read it. Nothing was saved, so those changes are kept',
+        [{ label: 'Reload from file', fn: reloadFromFile }, { label: 'Save as new file', fn: saveAsNewFile }]);
+      return;
+    }
+    const s = _fileStateNow(), before = { lastModified: s?.lastModified ?? null, size: s?.size ?? null };   // the file as this tab had it
+    const text = JSON.stringify(getAllData(), null, 2);
+    const written = await _writeHandle(handle, text);
+    _stampAfterWrite(handle, written, text);
+    _recoveryAfterWrite(handle, before);
+    if (fileHandle === handle) { setUnsavedMarker(false); flashSaveIndicator(); }
+  } catch (e) {
+    console.warn('File save failed', e);
+    if (fileHandle !== handle) return;   // a late failure on the file used before must not mark the one in use now
+    // Memory keeps every change; the marker stays until a save succeeds
+    setUnsavedMarker(true);
+    showActionToast('⚠ Save failed: your changes are kept in this tab but are not in the file',
+      [{ label: 'Retry', fn: writeFile }, { label: 'Save as new file', fn: saveAsNewFile }]);
+  }
+}
+
+function _showReadOnlyToast() {
+  showActionToast(_fileState.gameFile
+    ? `⚠ This herd is in a file named like the game's save file (${_fileState.handle?.name}), so it is open read-only: the tracker never writes there. Use Save as new file to keep it in a herd file of its own`
+    : `⚠ This file is from a newer version of the tracker (data version ${_shownVersion(_fileState.version)}), so it is open read-only: changes are not saved to it`,
+    [{ label: 'Save as new file', fn: saveAsNewFile }]);
 }
 
 /** Show the "💾 Saved" flash */
@@ -1757,14 +1876,148 @@ function flashSaveIndicator() {
   setTimeout(() => el.classList.remove('show'), 1200);
 }
 
+/** The lasting "⚠ Not saved" marker where "💾 Saved" flashes, shown while the last save failed or was refused */
+function setUnsavedMarker(on) {
+  const el = $id('save-indicator');
+  if (!el || el.classList.contains('unsaved') === on) return;
+  el.classList.toggle('unsaved', on);
+  el.textContent = on ? '⚠ Not saved' : '💾 Saved';
+}
+
 /** Debounced save — fires 400 ms after the last call */
 function save() {
   if (storageMode === 'file') {
     clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(writeFile, 400);
+    _saveTimer = setTimeout(() => { _saveTimer = null; writeFile(); }, 400);
   } else {
     writeBrowserData();
   }
+}
+
+/** Write a waiting debounced save at once: the tab is being hidden or left, and the 400 ms might never pass */
+function flushPendingSave() {
+  if (_saveTimer === null) return;
+  clearTimeout(_saveTimer);
+  _saveTimer = null;
+  writeFile();
+}
+
+/** A file save waits or runs, or the last save failed or was refused (the ⚠ Not saved marker shows) */
+function _unsavedWork() {
+  return _saveTimer !== null || _writeJobs > 0 || !!$id('save-indicator')?.classList.contains('unsaved');
+}
+
+// Hidden (switched away, minimised): the page keeps running, so the save started here finishes
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPendingSave(); });
+// Leaving the page: start a waiting save, and while anything is not saved ask the browser to confirm. The browser shows its own
+// question, and only once the player has used the page. The page is blocked while the question shows, so the save finishes only
+// if the player chooses to stay
+window.addEventListener('beforeunload', e => {
+  flushPendingSave();
+  if (!_unsavedWork()) return;
+  e.preventDefault();
+  e.returnValue = true;   // Chrome and Edge before 119 ask only when returnValue is set
+});
+/**
+ * The page is going away. Only synchronous work is sure to finish here: in Chrome the file write started below stops at its
+ * first await. The hidden-tab handler above is what saves, the leave question gives the player the chance to stay until it
+ * has, and this one is a last try
+ */
+function onPageHide() {
+  // File storage with a save not done: a recovery copy in browser storage first, since setItem is synchronous and so sure to
+  // finish. It holds the file's stamp as this tab last read or wrote it, so the next start can tell whether the file changed since.
+  // Only a copy this page load wrote itself is overwritten: a copy from another tab or an earlier session stays until it is offered
+  // and answered. There is one key, and this tab's leave question already told the player its own changes are not saved
+  if (storageMode === 'file' && fileHandle && _unsavedWork()) {
+    try {
+      const s = _fileStateNow(), stamp = { lastModified: s?.lastModified ?? null, size: s?.size ?? null };
+      const older = _readRecovery();
+      if (!older || older.tabId === _tabId) {
+        localStorage.setItem(KEYS.RECOVERY, JSON.stringify({ name: fileHandle.name, ...stamp, savedAt: Date.now(), tabId: _tabId, data: getAllData() }));
+      }
+    } catch { /* storage full or blocked: there is nothing more to try here */ }
+  }
+  flushPendingSave();
+}
+window.addEventListener('pagehide', onPageHide);
+
+// ── RECOVERY COPY (file storage) ──────────────────────────────────
+// This page load's own id, stored in the recovery copy it writes, so it never takes a copy another tab or session left behind for its own
+const _tabId = (() => {
+  try { if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID(); } catch { /* not a secure context */ }
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+})();
+
+/** The copy belongs to the file named name as the stamp says: the same file, at the same time and size */
+function _recoveryMatches(rec, name, stamp) {
+  return rec.name === name && typeof rec.lastModified === 'number' && rec.lastModified === stamp?.lastModified && rec.size === stamp?.size;
+}
+
+/** The recovery copy in browser storage, or null. Stored data is untrusted: only the outer shape is checked here */
+function _readRecovery() {
+  let raw;
+  try { raw = localStorage.getItem(KEYS.RECOVERY); } catch { return null; }
+  if (raw === null) return null;
+  try { const r = JSON.parse(raw); return r && typeof r === 'object' && !Array.isArray(r) && typeof r.name === 'string' ? r : null; } catch { return null; }
+}
+function _removeRecovery() { try { localStorage.removeItem(KEYS.RECOVERY); } catch { /* blocked storage: nothing stored */ } }
+
+/**
+ * After a successful write to a file. Only a copy this page load left behind for that file as it had it before the write (same
+ * name and stamp) is out of date, for example after the page came back from the browser's back-forward cache. Any other copy,
+ * also one being offered, stays until Restore, Discard or Clear All Data
+ */
+function _recoveryAfterWrite(handle, before) {
+  const rec = _readRecovery();
+  if (rec && rec.tabId === _tabId && _recoveryMatches(rec, handle.name, before)) _removeRecovery();
+}
+
+/**
+ * Opening a file (Continue, Open, Reload) for which a recovery copy is stored. When the file is as the copy's stamp says (the
+ * change never reached it), the copy can be restored; when it has changed since, the copy is only offered as a download, never
+ * applied. A copy that equals the file is removed without a word
+ */
+function _offerRecovery(handle, file, text) {
+  const rec = _readRecovery();
+  if (!rec || rec.name !== handle.name) return;
+  let same = false;
+  try { same = JSON.stringify(JSON.parse(text)) === JSON.stringify(rec.data); } catch { /* not comparable */ }
+  if (same) { _removeRecovery(); return; }
+  // The save the load itself asked for would replace this question with its own message (a refusal or a failure) within 400 ms.
+  // Restore saves, and so does Discard
+  clearTimeout(_saveTimer); _saveTimer = null;
+  const unchanged = typeof rec.lastModified === 'number' && rec.lastModified === file.lastModified && rec.size === file.size;
+  const usable = _isHerdFile(rec.data) && !((typeof rec.data.version === 'number' ? rec.data.version : 1) > DATA_VERSION);
+  const discard = { label: 'Discard', fn: _discardRecovery };
+  if (unchanged && usable) {
+    showActionToast('⚠ Unsaved changes from last time were found for this file: they never reached it. Restore them, or discard them',
+      [{ label: 'Restore', fn: () => _restoreRecovery(rec) }, discard], 30000);
+  } else {
+    showActionToast(unchanged
+      ? '⚠ Unsaved changes from last time were found for this file, but they cannot be restored here. Download them to look at them, or discard them'
+      : '⚠ Unsaved changes from last time were found for this file, but the file has changed since, so they are not restored. Download them to look at them, or discard them',
+      [{ label: 'Download', fn: () => _downloadRecovery(rec) }, discard], 30000);
+  }
+}
+
+/** Restore: the copy goes through the same checks as a file, then replaces what the tab holds and is saved to the file */
+function _restoreRecovery(rec) {
+  if (!_loadHerdText(JSON.stringify(rec.data))) return;   // its toast says why; memory is as it was
+  _removeRecovery();
+  closeStartup(true);
+  _showReloadedHerd();
+  save();
+  showToast('Restored the unsaved changes from last time');
+}
+function _downloadRecovery(rec) {
+  _downloadText(JSON.stringify(rec.data ?? null, null, 2), 'herd_data-recovery.json');
+  showActionToast('Downloaded the unsaved changes as herd_data-recovery.json. They stay stored until you discard them',
+    [{ label: 'Discard', fn: _discardRecovery }], 30000);
+}
+function _discardRecovery() {
+  _removeRecovery();
+  save();   // what the load would have saved, held back while the question showed
+  showToast('Discarded the unsaved changes from last time');
 }
 
 // Goals and sightings are part of the one data set; both storage modes write all of it
@@ -1781,7 +2034,7 @@ let _browserSaveWarned = false;   // the save-failure toast shows once per sessi
 
 /** Browser storage: write the whole data set, the same object a file holds. Storage that is full or blocked must not stop the app */
 function writeBrowserData() {
-  if (_unreadableBrowserData !== null) return;
+  if (_unreadableBrowserData !== null) { setUnsavedMarker(true); return; }
   const text = JSON.stringify(getAllData());
   const write = () => { try { localStorage.setItem(KEYS.DATA, text); return null; } catch (e) { return e; } };
   const removeLegacy = () => { try { LEGACY_KEYS.forEach(k => localStorage.removeItem(k)); return true; } catch { return false; } };
@@ -1796,6 +2049,7 @@ function writeBrowserData() {
   }
   if (err) {
     console.warn('Browser storage save failed', err);
+    setUnsavedMarker(true);   // the lasting signal; the toast below shows once per session
     if (!_browserSaveWarned) {
       // A failure while the startup screen is up (Migrate to file) warns but does not count, so the first save after it warns again
       if ($id('startup-overlay')?.classList.contains('hidden')) _browserSaveWarned = true;
@@ -1804,6 +2058,7 @@ function writeBrowserData() {
     }
     return;
   }
+  setUnsavedMarker(false);
   if (_legacyKeys && removeLegacy()) _legacyKeys = null;
 }
 
@@ -1815,6 +2070,7 @@ function writeBrowserData() {
  *
  * Always-run baseline checks (missing fields, new defaults) live at the
  * bottom and do not require a version bump.
+ * Returns true if anything changed (the data is then saved).
  */
 function migrateMemory() {
   loadSpAids();
@@ -1933,6 +2189,7 @@ function migrateMemory() {
 
   // If anything changed, persist immediately so the file is up to date
   if (dirty) save();
+  return dirty;
 }
 
 /**
@@ -2056,6 +2313,7 @@ async function initStorage() {
     document.getElementById('startup-continue')?.remove();
     document.querySelector('.startup-box .secondary')?.remove();
     document.querySelector('.startup-box .secondary')?.remove();
+    document.getElementById('fresh-note')?.remove();
     useBrowserStorage();
     return;
   }
@@ -2083,14 +2341,7 @@ async function continueWithStoredFile() {
   try {
     const perm = await handle.requestPermission({ mode: 'readwrite' });
     if (perm !== 'granted') { showToast('Permission denied'); return; }
-    const text = await (await handle.getFile()).text();
-    let _pd; try { _pd = JSON.parse(text); } catch { showToast('Invalid save file — JSON could not be parsed'); return; }
-    if (!_isHerdFile(_pd)) { showToast('This is not a herd file (no herd list). Nothing was opened or changed.'); return; }
-    applyData(_pd);
-    fileHandle  = handle;
-    storageMode = 'file';
-    _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
-    closeStartup();
+    await _openHerdFile(handle);
   } catch (e) {
     showToast('Could not open file — pick it again');
     document.getElementById('startup-continue').style.display = 'none';
@@ -2100,23 +2351,120 @@ async function continueWithStoredFile() {
 /** A herd file has a herd list; any other JSON (for example the game's Mounts.json) must never be adopted as the save file */
 function _isHerdFile(d) { return !!d && typeof d === 'object' && !Array.isArray(d) && Array.isArray(d.herd); }
 
+/**
+ * Load a herd file's text into memory. The text is parsed and checked first, so a file that is no herd file changes nothing;
+ * if loading it fails all the same, the previous state is put back. Returns the parsed data, or null after a toast saying why
+ */
+function _loadHerdText(text) {
+  let d;
+  try { d = JSON.parse(text); } catch { showToast('Invalid save file — JSON could not be parsed'); return null; }
+  if (!_isHerdFile(d)) { showToast('This is not a herd file (no herd list). Nothing was opened or changed.'); return null; }
+  const before = getAllData(), version = loadedDataVersion, lastId = _lastAnimalId;
+  try {
+    applyData(d);
+  } catch (e) {
+    console.warn('Herd file could not be loaded', e);
+    applyData(before); loadedDataVersion = version; _lastAnimalId = lastId;
+    showToast('⚠ This file could not be loaded. Nothing was opened or changed.', 6000);
+    return null;
+  }
+  return d;
+}
+
+/**
+ * Open a herd file handle and use it from now on (Continue, Open existing data file, and Reload from file with reload set). A file
+ * from a newer data version opens read-only. A file from an older one is updated and saved as before, and a message offers the
+ * original as it was. Returns true when the file is in use; otherwise nothing changed and a toast said why
+ */
+async function _openHerdFile(handle, reload = false) {
+  const file = await handle.getFile();
+  const text = await file.text();
+  const d = _loadHerdText(text);
+  if (!d) return false;
+  const version = typeof d.version === 'number' ? d.version : 1;   // as applyData() reads it; migrateMemory() then overwrites it
+  fileHandle  = handle;
+  storageMode = 'file';
+  _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
+  // A herd in a file named like a game save file (an older version could write one into an emptied Mounts.json) can be read and
+  // rescued with Save as new file, but is never written again
+  _setFileState(handle, file.lastModified, file.size, version, _isGameSaveName(handle.name));
+  setUnsavedMarker(false);
+  const changed = closeStartup(reload);   // brings memory up to DATA_VERSION and saves if anything changed
+  if (_fileReadOnly()) _showReadOnlyToast();
+  else if (changed && version < DATA_VERSION) {
+    // The original text is held only by this message's link, so it goes when the message does
+    showActionToast(`This file is from an older version (data version ${_shownVersion(version)}) and is being updated to version ${DATA_VERSION}. Download the original to keep it as it was`,
+      [{ label: 'Download original', fn: () => downloadOriginalFile(text, version) }], 15000);
+  }
+  // Last, so its question is the one that shows: changes that may never have reached the file matter most
+  _offerRecovery(handle, file, text);
+  return true;
+}
+
+/** Download a file from an older data version as it was read, before the update saved over it */
+function downloadOriginalFile(text, version) {
+  const name = `herd_data-v${_shownVersion(version)}-backup.json`;
+  _downloadText(text, name);
+  showToast(`Downloaded the original file as ${name}`);
+}
+
 async function openExistingFile() {
   try {
     const [handle] = await window.showOpenFilePicker({
       types: [{ description: 'Herd Data', accept: { 'application/json': ['.json'] } }]
     });
-    const text = await (await handle.getFile()).text();
-    let _pd2; try { _pd2 = JSON.parse(text); } catch { showToast('Invalid save file — JSON could not be parsed'); return; }
-    if (!_isHerdFile(_pd2)) { showToast('This is not a herd file (no herd list). Nothing was opened or changed.'); return; }
-    applyData(_pd2);
-    fileHandle  = handle;
-    storageMode = 'file';
-    _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
-    await storeHandleInDB(handle);
-    closeStartup();
+    if (await _openHerdFile(handle)) await storeHandleInDB(handle);
   } catch (e) {
     if (e.name !== 'AbortError') showToast('Could not open file');
   }
+}
+
+// The game's own save files, by name in lower case. Only Mounts.json is known to sit where players pick files for the tracker
+const GAME_SAVE_FILE_NAMES = ['mounts.json'];
+/** A file name that is a game save file's. Windows ignores trailing dots and spaces in a name, so they are dropped first */
+function _isGameSaveName(name) { return GAME_SAVE_FILE_NAMES.includes(String(name ?? '').replace(/[. ]+$/, '').toLowerCase()); }
+
+/**
+ * Before a herd is written into a file picked in a save dialog. The dialog replaces the file the player picks, and Chromium
+ * browsers empty it as soon as the player confirms, before this runs; the operating system asks before replacing. So this
+ * cannot undo that, but it keeps the app from adopting and writing such a file:
+ * - a file named like a game save file is refused whatever it holds, since it may already be empty;
+ * - a file that still holds content (a browser that does not empty it) must be a herd file, only where allowHerd is set, and
+ *   not one from a newer data version. A game Mounts file is refused first, so one that also has a herd list fails closed.
+ * A new or empty file is fine; a file that cannot be read is refused, since what it holds is unknown. Returns true when it may be written
+ */
+async function _mayWriteHerdTo(handle, allowHerd) {
+  if (_isGameSaveName(handle.name)) {
+    showToast(`⚠ ${handle.name} is a game save file, so the tracker does not use it. The browser may already have emptied it when you confirmed: `
+      + 'let the game write it again or restore it from a backup. Pick a new file name for the herd.', 12000);
+    return false;
+  }
+  let text;
+  try {
+    text = await (await handle.getFile()).text();
+  } catch (e) {
+    if (e?.name === 'NotFoundError') return true;   // not created yet, so there is nothing to lose
+    showToast('⚠ That file could not be read, so nothing was written to it. Pick a new file name.', 8000);
+    return false;
+  }
+  if (String(text).trim() === '') return true;
+  let d = null;
+  try { d = JSON.parse(text); } catch { /* not JSON: refused below */ }
+  if (!!d && typeof d === 'object' && !Array.isArray(d) && Object.hasOwn(d, 'SavedMounts')) {
+    showToast('⚠ That is a game Mounts file, not a herd file. Nothing was written to it: pick a new file name.', 8000);
+    return false;
+  }
+  if (_isHerdFile(d)) {
+    if ((typeof d.version === 'number' ? d.version : 1) > DATA_VERSION) {
+      showToast('⚠ That herd file is from a newer version of the tracker. Nothing was written to it, so its data stays: pick a new file name.', 8000);
+      return false;
+    }
+    if (allowHerd) return true;
+    showToast('⚠ That file already holds a herd, so Start fresh wrote nothing to it. Open it with 📂 Open existing data file, or pick a new file name.', 8000);
+    return false;
+  }
+  showToast('⚠ That file is not a herd file. Nothing was written to it: pick a new file name.', 8000);
+  return false;
 }
 
 async function createNewFile() {
@@ -2125,14 +2473,17 @@ async function createNewFile() {
       suggestedName: 'herd_data.json',
       types: [{ description: 'Herd Data', accept: { 'application/json': ['.json'] } }]
     });
+    // Start fresh writes an empty herd, so it does not take a game file or a file that still holds something
+    if (!(await _mayWriteHerdTo(handle, false))) return;
+    const text = JSON.stringify(getAllData(), null, 2);   // the empty initial data
+    const written = await _writeHandle(handle, text);
     fileHandle  = handle;
     storageMode = 'file';
     _unreadableBrowserData = null;   // the unreadable browser copy is no longer what Download saves
+    _setFileState(handle);   // a file this tab starts using now, with no limits from before
+    _stampAfterWrite(handle, written, text);
+    setUnsavedMarker(false);
     await storeHandleInDB(handle);
-    // Write empty initial data
-    const w = await handle.createWritable();
-    await w.write(JSON.stringify(getAllData(), null, 2));
-    await w.close();
     closeStartup();
   } catch (e) {
     if (e.name !== 'AbortError') showToast('Could not create file');
@@ -2146,24 +2497,122 @@ async function migrateFromLocalStorage() {
   // Up to date before the first write, so the file never holds old data under the new version number. This saves the browser
   // copy too, as any load in browser storage does; it is cleared below once the file exists
   migrateMemory();
+  let migrated = false;
   try {
     const handle = await window.showSaveFilePicker({
       suggestedName: 'herd_data.json',
       types: [{ description: 'Herd Data', accept: { 'application/json': ['.json'] } }]
     });
-    const w = await handle.createWritable();
-    await w.write(JSON.stringify(getAllData(), null, 2));
-    await w.close();
+    if (!(await _mayWriteHerdTo(handle, true))) return;
+    const text = JSON.stringify(getAllData(), null, 2);
+    const written = await _writeHandle(handle, text);
     fileHandle  = handle;
     storageMode = 'file';
+    _setFileState(handle);   // a file this tab starts using now, with no limits from before
+    _stampAfterWrite(handle, written, text);
+    setUnsavedMarker(false);
     await storeHandleInDB(handle);
     // Clear browser storage: the data set and the keys of earlier versions
-    try { Object.values(KEYS).forEach(k => localStorage.removeItem(k)); } catch { /* blocked storage: nothing to clear */ }
+    // (not the recovery copy: it belongs to a file, not to browser storage)
+    try { [KEYS.DATA, ...LEGACY_KEYS].forEach(k => localStorage.removeItem(k)); } catch { /* blocked storage: nothing to clear */ }
+    migrated = true;
     showToast('✅ Migrated to file storage!');
     closeStartup();
   } catch (e) {
     if (e.name !== 'AbortError') showToast('Migration cancelled');
+  } finally {
+    // Cancelled, refused or failed: memory is emptied again, so a following Start fresh writes an empty herd and not the browser
+    // data. Use browser storage instead reads that data again
+    if (!migrated) applyData({ version: DATA_VERSION, herd: [] });
   }
+}
+
+/**
+ * Save as new file: write what this tab holds to a file the player picks, at DATA_VERSION, and use that file from now on.
+ * Offered when a save failed or was refused, so nothing in the tab is lost
+ */
+async function saveAsNewFile() {
+  const failed = e => {
+    console.warn('Save as new file failed', e);
+    showActionToast('⚠ The new file could not be written: your changes are kept in this tab', [{ label: 'Save as new file', fn: saveAsNewFile }]);
+  };
+  let handle, emptiedSame = null;   // emptiedSame: why the file in use was picked again after the browser had emptied it
+  try {
+    handle = await window.showSaveFilePicker({
+      suggestedName: 'herd_data-copy.json',
+      types: [{ description: 'Herd Data', accept: { 'application/json': ['.json'] } }]
+    });
+    // The file this tab may not save to (changed by another tab, from a newer version, or named like a game file) picked again
+    const s = _fileStateNow();
+    if (s && (s.conflict || _fileReadOnly()) && await handle.isSameEntry(fileHandle)) {
+      const reason = s.conflict ? 'conflict' : s.gameFile ? 'game' : 'newer';
+      // A browser that does not empty a picked file leaves what the other tab or the newer version saved in it: keep that
+      if (String(await (await handle.getFile()).text()).trim() !== '') {
+        showToast({
+          conflict: '⚠ That is the file another tab or program changed, and it still holds what they saved. Nothing was written to it: pick a different file.',
+          newer:    '⚠ That is the file from the newer version, and it still holds its data. Nothing was written to it: pick a different file.',
+          game:     '⚠ That is the game file this herd was read from. Nothing was written to it: pick a different file.',
+        }[reason], 12000);
+        return;
+      }
+      // Chromium has emptied it already, so what it held is gone whatever this tab does; writing this tab's herd there is the best
+      // left to do. A game file is still refused below
+      emptiedSame = reason;
+    }
+    if (!(await _mayWriteHerdTo(handle, true))) return;
+  } catch (e) {
+    if (e?.name !== 'AbortError') failed(e);
+    return;
+  }
+  // The write below holds every change so far. It waits for a save in progress and switches to the new file before any save
+  // asked for during it runs, so a change made meanwhile is written to the new file next
+  clearTimeout(_saveTimer); _saveTimer = null;
+  await _inWriteChain(async () => {
+    try {
+      const text = JSON.stringify(getAllData(), null, 2);
+      const written = await _writeHandle(handle, text);
+      fileHandle  = handle;
+      storageMode = 'file';
+      // A file this tab starts using now: limits from before (read-only, conflict) go, also when it is the same file picked again
+      _setFileState(handle);
+      _stampAfterWrite(handle, written, text);
+      setUnsavedMarker(false);
+      flashSaveIndicator();
+      await storeHandleInDB(handle);
+      if (emptiedSame === 'conflict') {
+        showToast('⚠ The browser emptied that file when you confirmed, so what the other tab or program had saved in it is gone. This tab\'s herd is saved there now. '
+          + 'In the other tab, use Save as new file to keep its herd, or Reload from file to continue with this one.', 15000);
+      } else if (emptiedSame) {
+        showToast(`⚠ The browser emptied that file when you confirmed, so the newer version's data in it is gone. This tab's herd is saved there now, at data version ${DATA_VERSION}.`, 15000);
+      } else showToast('✅ Saved to the new file, which is used from now on');
+    } catch (e) { failed(e); }
+  });
+}
+
+/** Reload from file: replace what this tab holds with the file as it is now, through the same checks as Open existing data file */
+async function reloadFromFile() {
+  const handle = fileHandle;
+  if (!handle) return;
+  clearTimeout(_saveTimer); _saveTimer = null;   // the change waiting to be saved is what the player chose to replace
+  // In the write queue, so a save in progress finishes before the file is read
+  const opened = await _inWriteChain(async () => {
+    try { return await _openHerdFile(handle, true); }
+    catch (e) { console.warn('Reload from file failed', e); showToast('⚠ The file could not be read. Nothing was changed.', 6000); return false; }
+  });
+  if (!opened) return;
+  _showReloadedHerd();
+  // A message with links from the load (read-only, the original of an older file, a recovery copy) stays up
+  if (!_toastActions.length) showToast('Reloaded from the file');
+}
+
+/** After the herd in memory was replaced while the app is open (Reload from file, Restore): show it on the open tab */
+function _showReloadedHerd() {
+  // An edit, a placement or a view in progress may point at an animal the new herd does not hold
+  if (editingId !== null) { editingId = null; $id('save-btn').textContent = '💾 Save Animal'; $id('cancel-edit-btn').style.display = 'none'; resetFormUI(); }
+  dismissPairAssign();
+  closeViewPanel();
+  const tab = document.querySelector('.tab.active')?.id?.replace(/^tab-/, '');
+  if (tab) showTab(tab);
 }
 
 function useBrowserStorage() {
@@ -2172,11 +2621,21 @@ function useBrowserStorage() {
   closeStartup();
 }
 
-function closeStartup() {
+/**
+ * Close the startup screen and show the loaded herd. Returns true if migrateMemory() changed (and so saved) the data.
+ * reload (Reload from file) leaves the New Animal form and the focus as they are
+ */
+function closeStartup(reload = false) {
   document.getElementById('startup-overlay').classList.add('hidden');
-  migrateMemory();
-  buildStatsRow();
-  onSpeciesChange();
+  const changed = migrateMemory();
+  if (!reload) {
+    buildStatsRow();
+    onSpeciesChange();
+  } else {
+    // The form stays, but its name preview (the next ID) and odds follow the reloaded herd
+    updateName();
+    renderProbPanel();
+  }
   initPairs();
   renderHerd();
   renderPairs();
@@ -2195,7 +2654,8 @@ function closeStartup() {
     btn2.textContent = '🛸 Show Station'; btn2.onclick = toggleShowStation;
     herdHdr.appendChild(btn2);
   }
-  setTimeout(() => document.getElementById('stat-VIG')?.focus(), 100);
+  if (!reload) setTimeout(() => document.getElementById('stat-VIG')?.focus(), 100);
+  return changed;
 }
 
 /** Kept for compatibility — now a no-op (data loads via applyData) */
@@ -5405,6 +5865,7 @@ function clearAllDataConfirmed() {
   if (editingId !== null) { editingId = null; $id('save-btn').textContent = '💾 Save Animal'; $id('cancel-edit-btn').style.display = 'none'; resetFormUI(); }
   dismissPairAssign();
   _unreadableBrowserData = null;   // browser storage that could not be loaded is replaced now, as the player asked
+  _removeRecovery();   // a recovery copy is herd data too
   applyData({ version: DATA_VERSION, herd: [], logMax });
   migrateMemory();
   initPairs();
@@ -5417,6 +5878,16 @@ function clearAllDataConfirmed() {
   showToast('All data cleared');
 }
 
+/** Hand the player text as a JSON file download */
+function _downloadText(text, name) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const el   = document.createElement('a');
+  el.href = url; el.download = name; el.click();
+  // Firefox and Safari start the download after click() returns, so the URL must outlive it
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 /**
  * Download everything the app keeps as herd_data.json, the same file file storage writes and Open existing data file reads.
  * In browser storage that could not be read or loaded, the stored text is downloaded unchanged under another name instead
@@ -5425,12 +5896,7 @@ function downloadHerdJSON() {
   const unreadable = storageMode === 'localStorage' && _unreadableBrowserData !== null;
   const text = unreadable ? _unreadableBrowserData : JSON.stringify(getAllData(), null, 2);
   const name = unreadable ? 'herd_data-unreadable.json' : 'herd_data.json';
-  const blob = new Blob([text], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const el   = document.createElement('a');
-  el.href = url; el.download = name; el.click();
-  // Firefox and Safari start the download after click() returns, so the URL must outlive it
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  _downloadText(text, name);
   showToast(unreadable ? 'Downloaded the browser storage this version could not open, as herd_data-unreadable.json'
                        : 'Herd downloaded as herd_data.json');
 }
@@ -6699,9 +7165,13 @@ function showTab(id, _btn) {
 
 // ── TOAST ────────────────────────────────────────────────────────
 let toastTimer;
+// The actions of the links in the toast showing now (showActionToast). Any other toast replaces the links and drops them, so
+// what an action holds (the original text of an updated file, for example) goes with its message
+let _toastActions = [];
 /** Show msg as text for ms milliseconds (longer for warnings the player must not miss) */
 function showToast(msg, ms = 2500) {
   const t = $id('toast');
+  _toastActions = [];
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
@@ -6732,6 +7202,7 @@ function showConfirm(msg, onConfirm) {
 let _toastUndo = null;
 function showUndoToast(msg, fn) {
   _toastUndo = fn;
+  _toastActions = [];
   const t = $id('toast');
   t.innerHTML = $h(msg) + ' <span style="text-decoration:underline;cursor:pointer;margin-left:8px;font-weight:normal;font-size:12px" ' +
     'onclick="_toastUndo?.();_toastUndo=null;document.getElementById(\'toast\').classList.remove(\'show\')">' +
@@ -6739,6 +7210,29 @@ function showUndoToast(msg, fn) {
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.classList.remove('show'); t.textContent = ''; _toastUndo = null; }, 5000);
+}
+
+/**
+ * Show a toast with action links, like the Undo toast, for a problem the player can act on (a save that failed or was refused,
+ * a backup offer). actions is [{ label, fn }]; a link closes the toast and runs its action
+ */
+function showActionToast(msg, actions, ms = 12000) {
+  _toastActions = actions.map(a => a.fn);
+  const t = $id('toast');
+  // The toast lets clicks through to the page; its links take them back
+  t.innerHTML = $h(msg) + actions.map((a, i) => ' <span class="toast-action" style="text-decoration:underline;cursor:pointer;margin-left:8px;font-weight:normal;font-size:12px;pointer-events:auto" ' +
+    `onclick="_runToastAction(${i})">${$h(a.label)}</span>`).join('');
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); t.textContent = ''; _toastActions = []; }, ms);
+}
+function _runToastAction(i) {
+  const fn = _toastActions[i];
+  _toastActions = [];
+  const t = $id('toast');
+  clearTimeout(toastTimer);
+  t.classList.remove('show'); t.textContent = '';
+  fn?.();
 }
 
 // ── TOOLTIP ENGINE ───────────────────────────────────────────────

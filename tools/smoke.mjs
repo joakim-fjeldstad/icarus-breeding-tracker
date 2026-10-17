@@ -1766,7 +1766,8 @@ const newKeyWins = await ev(`(() => { ${MK27} try {
 check('the new key wins over old keys written later, which stay, and a stored data set cannot mark them as loaded (#27)', !newKeyWins.error
   && newKeyWins.herd === 'BM01 New' && newKeyWins.oldKept, JSON.stringify(newKeyWins));
 
-// Migrate data from browser storage: the first file write already holds up-to-date data (a stand-in picker and handle record it)
+// Migrate data from browser storage: the first file write already holds up-to-date data (a stand-in picker and handle record it).
+// The handle is a new, empty file, as the save dialog gives one; since #28 Migrate reads the picked file before it writes
 await ev(`(() => { localStorage.clear();
   localStorage.setItem(KEYS.HERD, JSON.stringify([{ id: 3, spId: 3, sp: 'Swamp Raptor', sex: 'F', bl: 'Wild', ph: '', gen: 1, p1: '', p2: '', stats: {}, name: 'SR03 Old', status: '?', notes: '' }]));
   localStorage.setItem(KEYS.GOALS, JSON.stringify({ 'Swamp Raptor': { goals: [], pairs: [{ bl: 'Bold', ph: '' }] } }));
@@ -1774,7 +1775,8 @@ await ev(`(() => { localStorage.clear();
 const toFile = await ev(`new Promise(res => { const picker = window.showSaveFilePicker, store = storeHandleInDB;
   const done = out => { window.showSaveFilePicker = picker; storeHandleInDB = store; storageMode = 'localStorage'; fileHandle = null; res(out); };
   try {
-    const writes = [], handle = { name: 'synthetic.json', createWritable: async () => ({ write: async t => { writes.push(t); }, close: async () => {} }) };
+    const writes = [], handle = { name: 'synthetic.json', getFile: async () => ({ lastModified: 1, text: async () => '' }),
+      createWritable: async () => ({ write: async t => { writes.push(t); }, close: async () => {} }) };
     window.showSaveFilePicker = async () => handle; storeHandleInDB = async () => {};
     migrateFromLocalStorage().then(() => {
       const first = writes.length ? JSON.parse(writes[0]) : {};
@@ -1920,6 +1922,824 @@ await reload();
 await ev(`useBrowserStorage(); true`);
 check('blocked browser storage does not stop the app from starting, loading or saving (#27)', !blocked.error && blocked.isBlocked && startupErrors.length === 0
   && blocked.herd === 1 && blockErrors.length === 0, JSON.stringify({ ...blocked, startupErrors: startupErrors.slice(0, 2), errors: blockErrors.slice(0, 3) }));
+
+// ── #28: file saves are safe against data loss ──────────────────────────────────────────────────────────────────────
+// Each check below fails on v0.33. A stand-in handle plays herd_data.json: getFile() gives its text, size and a lastModified that
+// every write moves on, and createWritable() records each write, so a check can play a second tab, a disk that refuses writes or a
+// slow one. Chromium empties a file picked in a save dialog before the page sees it, which a stand-in cannot do; the checks on files
+// that still hold content stand for browsers that do not. The game's Mounts.json is the synthetic one from fixtures.mjs. Checks that
+// act in several steps return what each step saw, so a failure shows where it went wrong
+const FH28 = `${MK27}
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const fakeHandle = (text, opts = {}) => {
+    const h = { kind: 'file', name: opts.name || 'synthetic.json', text, lastModified: 1000, writes: [], active: 0, maxActive: 0,
+      failWrite: false, failGetFileAfterWrite: false, justWrote: false,
+      getFile: async () => {
+        const after = h.justWrote; h.justWrote = false;
+        if (after && h.failGetFileAfterWrite) { h.failGetFileAfterWrite = false; throw new DOMException('stand-in: the file cannot be read', 'NotReadableError'); }
+        return { lastModified: h.lastModified, size: new TextEncoder().encode(h.text).length, text: async () => h.text };
+      },
+      createWritable: async () => {
+        if (h.failWrite) throw new DOMException('stand-in: the file cannot be written', 'NoModificationAllowedError');
+        let buf = ''; h.active++; h.maxActive = Math.max(h.maxActive, h.active);
+        return { write: async t => { if (opts.delay) await wait(opts.delay); if (opts.failLate) throw new DOMException('stand-in: the disk went away', 'NotReadableError'); buf += t; },
+          close: async () => { h.text = buf; h.lastModified++; h.writes.push(buf); h.active--; h.justWrote = true; },
+          abort: async () => { h.active--; } };
+      },
+      isSameEntry: async other => other === h,
+      queryPermission: async () => 'granted', requestPermission: async () => 'granted' };
+    return h;
+  };
+  const herdText = (names, version = DATA_VERSION) => JSON.stringify({ version, herd: names.map((n, i) => mk(i + 1, i + 1, 'Moa', i % 2 ? 'F' : 'M', 'Wild', n)) });
+  const toastEl = document.getElementById('toast');
+  const toastLinks = () => [...toastEl.querySelectorAll('span')].map(s => s.textContent);
+  const clickToast = label => { const s = [...toastEl.querySelectorAll('span')].find(x => x.textContent === label);
+    if (!s) throw new Error('the message has no ' + label + ' link: ' + toastEl.textContent); s.click(); };
+  const marker = () => document.getElementById('save-indicator').textContent;
+  const kept = { open: window.showOpenFilePicker, save: window.showSaveFilePicker, store: storeHandleInDB };
+  storeHandleInDB = async () => {};
+  // Back to browser storage with no file state, once any write still running has finished
+  const restore = async () => {
+    window.showOpenFilePicker = kept.open; window.showSaveFilePicker = kept.save; storeHandleInDB = kept.store;
+    clearTimeout(_saveTimer); _saveTimer = null;
+    await Promise.race([typeof _writeChain === 'undefined' ? null : _writeChain, wait(3000)]);
+    storageMode = 'localStorage'; fileHandle = null;
+    _fileState = { handle: null, lastModified: null, size: null, version: DATA_VERSION, gameFile: false, conflict: false, written: null };
+    _writeChain = Promise.resolve(); _writeWaiting = false; _writeJobs = 0; _toastActions = [];
+    try { localStorage.removeItem('icarus_recovery_v1'); } catch { /* blocked */ }
+  };
+  // Open existing data file with the stand-in, then wait until a save the load itself asks for has run
+  const openWith = async h => { window.showOpenFilePicker = async () => [h]; await openExistingFile(); await wait(600); };
+  // The other tab (or a program) saves the file: its text and time change
+  const otherSaves = (h, text, ms = 5000) => { h.text = text; h.lastModified += ms; };`;
+const MOUNTS = fx.file([{ name: 'Synthetic Moa' }]);
+
+// The startup screen says, next to Start fresh, what the save dialog does to a file the player picks
+const freshNote = await ev(`(() => { const btn = [...document.querySelectorAll('.startup-box button')].find(b => /Start fresh/.test(b.textContent));
+  const note = document.getElementById('fresh-note');
+  return { text: note ? note.textContent : null, next: !!note && btn?.nextElementSibling === note }; })()`);
+check('the startup screen says next to Start fresh that the save dialog replaces a file you pick and the browser empties it (#28)', freshNote.next
+  && /replaces/.test(freshNote.text) && /empties/.test(freshNote.text), JSON.stringify(freshNote));
+
+// Hiding the tab (switching away or minimising) writes a change that is waiting for the 400 ms; the page keeps running, so it finishes
+const visFlush = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 Hidden']));
+  await openWith(h);
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Saved when hidden'; save();
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  try { document.dispatchEvent(new Event('visibilitychange')); } finally { delete document.visibilityState; }
+  await wait(60);
+  const last = JSON.parse(h.writes[h.writes.length - 1] || '{}');
+  return { written: h.writes.length - n0, nickname: last.herd?.[0]?.nickname ?? null, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('a change waiting to be saved is written at once when the tab is hidden, not 400 ms later (#28)', !visFlush.error && visFlush.written === 1
+  && visFlush.nickname === 'Saved when hidden', JSON.stringify(visFlush));
+
+// pagehide (the page going away) starts the waiting save too. A real file write stops at its first await there, so this only
+// shows the save is started; the stand-in finishes it within the event
+const pageHide = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 Leaving']));
+  await openWith(h);
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Started on pagehide'; save();
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  await wait(60);
+  const last = JSON.parse(h.writes[h.writes.length - 1] || '{}');
+  return { written: h.writes.length - n0, nickname: last.herd?.[0]?.nickname ?? null, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('the save waiting when the page goes away is started on pagehide (#28)', !pageHide.error && pageHide.written === 1
+  && pageHide.nickname === 'Started on pagehide', JSON.stringify(pageHide));
+
+// Leaving the page asks the browser to confirm while a save waits, runs, or failed (⚠ Not saved), and not when all is saved;
+// a waiting save is started at once
+const leave = await ev(`(async () => { ${FH28} const out = {}; try {
+  const fire = () => { const e = document.createEvent('BeforeUnloadEvent'); e.initEvent('beforeunload', false, true); window.dispatchEvent(e);
+    return { asked: e.defaultPrevented || e.returnValue !== '' }; };
+  const h = fakeHandle(herdText(['BM01 Leave']), { delay: 100 });
+  await openWith(h); await wait(200);
+  out.idle = fire();
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Waiting when leaving'; save();
+  out.waiting = fire();
+  await wait(20);
+  out.running = fire();
+  await wait(300);
+  out.waiting.started = h.writes.length - n0;
+  out.done = fire();
+  if (typeof setUnsavedMarker === 'function') setUnsavedMarker(true);
+  out.marker = fire();
+  if (typeof setUnsavedMarker === 'function') setUnsavedMarker(false);
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('leaving the page asks to confirm while a save waits, runs or failed, starts a waiting save, and does not ask when everything is saved (#28)',
+  !leave.error && !leave.idle.asked && leave.waiting.asked && leave.waiting.started === 1 && leave.running.asked && !leave.done.asked && leave.marker.asked,
+  JSON.stringify(leave));
+
+// Writes run one at a time on a slow disk: two saves asked for during a write become one write after it, holding the latest data
+const chain = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 Slow disk']), { delay: 80 });
+  applyData(JSON.parse(h.text));
+  storageMode = 'file'; fileHandle = h;
+  animals[0].nickname = 'first'; const p1 = writeFile();
+  await wait(20);   // the first write is still running
+  animals[0].nickname = 'second'; writeFile();
+  animals[0].nickname = 'third'; const p3 = writeFile();
+  await Promise.all([p1, p3]); await wait(300);
+  return { maxActive: h.maxActive, saved: h.writes.map(w => JSON.parse(w).herd[0].nickname), file: JSON.parse(h.text).herd[0].nickname, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('file writes never overlap: saves asked for during a write become one write after it, with the latest data (#28)', !chain.error && chain.maxActive === 1
+  && JSON.stringify(chain.saved) === '["first","third"]' && chain.file === 'third', JSON.stringify(chain));
+
+// A write job that throws does not stop the saves queued after it
+const chainAfterThrow = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 After a throw']));
+  applyData(JSON.parse(h.text));
+  storageMode = 'file'; fileHandle = h;
+  _inWriteChain(async () => { await wait(20); throw new Error('stand-in: a write job that throws'); });
+  animals[0].nickname = 'Saved after the throw'; await writeFile(); await wait(100);
+  return { written: h.writes.length, nickname: JSON.parse(h.text).herd[0].nickname, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('a write that throws does not stop the saves queued after it (#28)', !chainAfterThrow.error && chainAfterThrow.written === 1
+  && chainAfterThrow.nickname === 'Saved after the throw', JSON.stringify(chainAfterThrow));
+
+// Two tabs on one file. The other tab saves; this tab's next save is refused and says so. Reload from file then shows the other
+// tab's herd without touching the New Animal form or the focus, its name preview shows the reloaded herd's next ID, and it saves
+// again from there. After the next refusal, Save as new file (suggesting a new name) keeps this tab's herd
+const THEIRS = ['BM07 Theirs', 'BM08 Theirs', 'BM09 Theirs', 'BM10 Theirs', 'BM11 Theirs'];
+const twoTabs = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(herdText(['BM01 Mine', 'BM02 Mine']));
+  await openWith(h);
+  const theirs = herdText(${JSON.stringify(THEIRS)});   // five Moa with IDs 1 to 5, so the next Moa is BM06
+  otherSaves(h, theirs);
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Changed here'; save(); await wait(600);
+  out.refused = { written: h.writes.length - n0, theirsKept: h.text === theirs, toast: toastEl.textContent, links: toastLinks(), marker: marker(), memory: animals[0].nickname };
+  showTab('entry');
+  document.getElementById('f-species').value = 'Moa'; onSpeciesChange();
+  const ph = SPECIES_DATA.Moa.phenotypes[3].label;
+  document.getElementById('f-phenotype').value = ph; document.getElementById('stat-VIG').value = '7';
+  updateName();
+  const previewBefore = document.getElementById('generated-name').textContent;
+  document.getElementById('f-notes').focus();
+  clickToast('Reload from file'); await wait(400);
+  out.reloaded = { herd: animals.map(a => a.name).join(), marker: marker(), sameFile: fileHandle === h };
+  out.form = { phenotype: document.getElementById('f-phenotype').value === ph, stat: document.getElementById('stat-VIG').value, focus: document.activeElement?.id,
+    previewBefore, preview: document.getElementById('generated-name').textContent, expectedBefore: formatSpId('Moa', 3), expected: formatSpId('Moa', 6) };
+  resetFormUI(); document.getElementById('f-notes').blur(); showTab('herd');
+  animals[0].nickname = 'After reload'; save(); await wait(600);
+  out.reloaded.saved = JSON.parse(h.text).herd[0].nickname;
+  const again = herdText(['BM08 Theirs again']);
+  otherSaves(h, again);
+  animals[0].nickname = 'Kept in a new file'; save(); await wait(600);
+  const h2 = fakeHandle(''); let suggested = null; window.showSaveFilePicker = async o => { suggested = o?.suggestedName; return h2; };
+  clickToast('Save as new file'); await wait(150);
+  const first = JSON.parse(h2.writes[0] || '{}');
+  animals[0].nickname = 'Next save'; save(); await wait(600);
+  out.saveAs = { suggested, version: first.version, nickname: first.herd?.[0]?.nickname, next: JSON.parse(h2.text || '{}').herd?.[0]?.nickname, sameFile: fileHandle === h2,
+    otherKept: h.text === again, marker: marker() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+const tt = twoTabs.refused;
+check('a save to a file another tab has changed is refused with a message, the other tab\'s data stays in the file and this tab keeps its change (#28)',
+  !!tt && tt.written === 0 && tt.theirsKept && /changed in another tab/.test(tt.toast) && JSON.stringify(tt.links) === '["Reload from file","Save as new file"]'
+  && tt.marker === '⚠ Not saved' && tt.memory === 'Changed here', JSON.stringify(twoTabs));
+check('Reload from file after a refused save shows the file\'s herd, clears the marker and saves to the file again (#28)', twoTabs.reloaded?.herd === THEIRS.join()
+  && twoTabs.reloaded.marker === '💾 Saved' && twoTabs.reloaded.sameFile && twoTabs.reloaded.saved === 'After reload', JSON.stringify(twoTabs));
+const tf = twoTabs.form;
+check('Reload from file leaves the New Animal form and the focus as they were, and the name preview shows the reloaded herd\'s next ID (#28)', tf?.phenotype === true
+  && tf.stat === '7' && tf.focus === 'f-notes' && tf.previewBefore.startsWith(tf.expectedBefore + ' ') && tf.preview.startsWith(tf.expected + ' '),
+  JSON.stringify(tf ?? twoTabs));
+check('Save as new file after a refused save suggests a new name, writes this tab\'s herd there and saves there from then on, leaving the other tab\'s file alone (#28)',
+  !twoTabs.error && twoTabs.saveAs?.suggested === 'herd_data-copy.json' && twoTabs.saveAs.version === 8 && twoTabs.saveAs.nickname === 'Kept in a new file'
+  && twoTabs.saveAs.next === 'Next save' && twoTabs.saveAs.sameFile && twoTabs.saveAs.otherKept && twoTabs.saveAs.marker === '💾 Saved', JSON.stringify(twoTabs));
+
+// Save as new file does not take the very file this tab may not save to (the one another tab changed, or the one from a newer
+// version) while it still holds that data, as in a browser that does not empty a picked file
+const sameFile = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(herdText(['BM01 Shared']));
+  await openWith(h);
+  const theirs = herdText(['BM07 Theirs']);
+  otherSaves(h, theirs);
+  animals[0].nickname = 'Mine'; save(); await wait(600);
+  window.showSaveFilePicker = async () => h;
+  const n0 = h.writes.length;
+  clickToast('Save as new file'); await wait(150);
+  out.conflict = { written: h.writes.length - n0, theirsKept: h.text === theirs, toast: toastEl.textContent, sameFile: fileHandle === h, marker: marker() };
+  await restore();
+  const text9 = JSON.stringify({ version: 9, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Future')] });
+  const h9 = fakeHandle(text9);
+  await openWith(h9);
+  window.showSaveFilePicker = async () => h9;
+  clickToast('Save as new file'); await wait(150);
+  out.newer = { written: h9.writes.length, same: h9.text === text9, toast: toastEl.textContent, sameFile: fileHandle === h9 };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('Save as new file refuses the same file while it still holds the other tab\'s or the newer version\'s data, and writes nothing to it (#28)', !sameFile.error
+  && sameFile.conflict?.written === 0 && sameFile.conflict.theirsKept && /still holds/.test(sameFile.conflict.toast) && /pick a different file/.test(sameFile.conflict.toast)
+  && sameFile.conflict.sameFile && sameFile.conflict.marker === '⚠ Not saved' && sameFile.newer?.written === 0 && sameFile.newer.same
+  && /still holds/.test(sameFile.newer.toast) && /pick a different file/.test(sameFile.newer.toast) && sameFile.newer.sameFile, JSON.stringify(sameFile));
+
+// Chromium empties a file picked in the save dialog before the page sees it. Picked again, the file in use is then already empty:
+// this tab's herd is written there, and the message says what was lost and, for another tab, what to do there
+const sameEmptied = await ev(`(async () => { ${FH28} const out = {}; try {
+  const emptyOnPick = h => async () => { h.text = ''; h.lastModified++; return h; };   // what Chromium does before the picker resolves
+  const h = fakeHandle(herdText(['BM01 Shared']));
+  await openWith(h);
+  otherSaves(h, herdText(['BM07 Theirs']));
+  animals[0].nickname = 'Mine'; save(); await wait(600);
+  window.showSaveFilePicker = emptyOnPick(h);
+  clickToast('Save as new file'); await wait(150);
+  const f = JSON.parse(h.text || '{}');
+  out.conflict = { version: f.version, nickname: f.herd?.[0]?.nickname, toast: toastEl.textContent, sameFile: fileHandle === h, marker: marker() };
+  animals[0].nickname = 'Saved there next'; save(); await wait(600);
+  out.conflict.next = JSON.parse(h.text || '{}').herd?.[0]?.nickname;
+  await restore();
+  const h9 = fakeHandle(JSON.stringify({ version: 9, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Future')] }));
+  await openWith(h9);
+  window.showSaveFilePicker = emptyOnPick(h9);
+  clickToast('Save as new file'); await wait(150);
+  const f9 = JSON.parse(h9.text || '{}');
+  out.newer = { version: f9.version, herd: f9.herd?.[0]?.name, toast: toastEl.textContent, sameFile: fileHandle === h9 };
+  animals[0].nickname = 'No longer read-only'; save(); await wait(600);
+  out.newer.next = JSON.parse(h9.text || '{}').herd?.[0]?.nickname;
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+const se = sameEmptied;
+check('Save as new file onto the same file the browser has already emptied writes this tab\'s herd there and says what was lost and what the other tab can do (#28)',
+  !se.error && se.conflict?.version === 8 && se.conflict.nickname === 'Mine' && /is gone/.test(se.conflict.toast) && /Save as new file/.test(se.conflict.toast)
+  && /Reload from file/.test(se.conflict.toast) && se.conflict.sameFile && se.conflict.marker === '💾 Saved' && se.conflict.next === 'Saved there next'
+  && se.newer?.version === 8 && se.newer.herd === 'BM01 Future' && /newer version's data in it is gone/.test(se.newer.toast) && se.newer.sameFile
+  && se.newer.next === 'No longer read-only', JSON.stringify(se));
+
+// A file put back to an older copy (a sync tool, for example: an older time) or changed to another size within the same time is
+// noticed, and nothing is saved over it
+const restored = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(herdText(['BM01 Newest']));
+  await openWith(h);
+  const olderCopy = herdText(['BM01 Older copy']);
+  h.text = olderCopy; h.lastModified -= 500;
+  let n0 = h.writes.length;
+  animals[0].nickname = 'Not over the older copy'; save(); await wait(600);
+  out.older = { written: h.writes.length - n0, kept: h.text === olderCopy, toast: toastEl.textContent };
+  clickToast('Reload from file'); await wait(300);
+  const sameTime = herdText(['BM01 Same time, other size, longer name']);
+  h.text = sameTime;   // the time stays as this tab read it
+  n0 = h.writes.length;
+  animals[0].nickname = 'Not over the same-time change'; save(); await wait(600);
+  out.size = { written: h.writes.length - n0, kept: h.text === sameTime, toast: toastEl.textContent };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('a file put back to an older copy, or changed to another size within the same time, is noticed and not saved over (#28)', !restored.error
+  && restored.older?.written === 0 && restored.older.kept && /changed in another tab/.test(restored.older.toast)
+  && restored.size?.written === 0 && restored.size.kept && /changed in another tab/.test(restored.size.toast), JSON.stringify(restored));
+
+// When the file's time cannot be read back after a save, the next save checks the file: it still holds exactly what this tab
+// wrote, so that save goes ahead. A real change by another tab after it is still noticed
+const unreadTime = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 Unread time']));
+  await openWith(h);
+  h.failGetFileAfterWrite = true;
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Saved, time unread'; save(); await wait(600);
+  const firstSaved = h.writes.length - n0;
+  animals[0].nickname = 'Own next save'; save(); await wait(600);
+  const ownNext = { written: h.writes.length - n0, nickname: JSON.parse(h.text).herd[0].nickname, marker: marker() };
+  const theirs = herdText(['BM07 Theirs']);
+  otherSaves(h, theirs);
+  animals[0].nickname = 'Not over theirs'; save(); await wait(600);
+  return { firstSaved, ownNext, written: h.writes.length - n0, theirsKept: h.text === theirs, toast: toastEl.textContent, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('a save whose file time cannot be read back does not block this tab\'s next save, and another tab\'s later change is still noticed (#28)', !unreadTime.error
+  && unreadTime.firstSaved === 1 && unreadTime.ownNext.written === 2 && unreadTime.ownNext.nickname === 'Own next save' && unreadTime.ownNext.marker === '💾 Saved'
+  && unreadTime.written === 2 && unreadTime.theirsKept && /changed in another tab/.test(unreadTime.toast), JSON.stringify(unreadTime));
+
+// A disk that refuses the write: the change stays in memory, the message offers Retry and Save as new file as links a pointer can
+// reach (the toast itself lets clicks through), and a lasting marker stays until a save succeeds
+const failSave = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(herdText(['BM01 Disk']));
+  await openWith(h);
+  h.failWrite = true; const n0 = h.writes.length;
+  animals[0].nickname = 'Not lost'; save(); await wait(600);
+  const link = [...toastEl.querySelectorAll('span')].find(s => s.textContent === 'Retry'), box = link?.getBoundingClientRect();
+  out.failed = { written: h.writes.length - n0, memory: animals[0].nickname, toast: toastEl.textContent, links: toastLinks(),
+    clickable: !!box && document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === link };
+  await wait(1500);   // longer than the 💾 Saved flash
+  out.marker = { later: marker(), opacity: getComputedStyle(document.getElementById('save-indicator')).opacity };
+  h.failWrite = false; clickToast('Retry'); await wait(150);
+  out.marker.afterRetry = marker(); out.marker.saved = JSON.parse(h.text).herd[0].nickname;
+  h.failWrite = true; animals[0].nickname = 'In the new file'; save(); await wait(600);
+  const h2 = fakeHandle(''); window.showSaveFilePicker = async () => h2;
+  clickToast('Save as new file'); await wait(150);
+  const f2 = JSON.parse(h2.text || '{}');
+  out.saveAs = { version: f2.version, nickname: f2.herd?.[0]?.nickname, herd: (f2.herd || []).length, sameFile: fileHandle === h2, marker: marker() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+const ff = failSave.failed;
+check('a failed save keeps the change in this tab, and its message offers Retry and Save as new file as links that can be clicked (#28)', !!ff && ff.written === 0
+  && ff.memory === 'Not lost' && /Save failed/.test(ff.toast) && JSON.stringify(ff.links) === '["Retry","Save as new file"]' && ff.clickable, JSON.stringify(failSave));
+check('a failed save leaves a lasting ⚠ Not saved marker, which a successful Retry clears (#28)', failSave.marker?.later === '⚠ Not saved'
+  && failSave.marker.opacity === '1' && failSave.marker.afterRetry === '💾 Saved' && failSave.marker.saved === 'Not lost', JSON.stringify(failSave));
+check('Save as new file after a failed save writes this tab\'s herd at the current data version and uses the new file (#28)', !failSave.error
+  && failSave.saveAs?.version === 8 && failSave.saveAs.nickname === 'In the new file' && failSave.saveAs.herd === 1 && failSave.saveAs.sameFile
+  && failSave.saveAs.marker === '💾 Saved', JSON.stringify(failSave));
+
+// A change made while Save as new file writes (slower than the 400 ms a save waits) is written to the new file after it
+const duringSaveAs = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 Before the copy']));
+  await openWith(h);
+  otherSaves(h, herdText(['BM07 Theirs']));
+  animals[0].nickname = 'Refused'; save(); await wait(600);
+  const h2 = fakeHandle('', { delay: 600 }); window.showSaveFilePicker = async () => h2;
+  clickToast('Save as new file'); await wait(50);   // the new file is being written
+  animals[0].nickname = 'Made during the write'; save();
+  await wait(1600);
+  return { file: JSON.parse(h2.text || '{}').herd?.[0]?.nickname ?? null, writes: h2.writes.length, sameFile: fileHandle === h2, marker: marker(), error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('a change made while Save as new file writes is saved to the new file after it, never lost behind a 💾 Saved (#28)', !duringSaveAs.error
+  && duringSaveAs.file === 'Made during the write' && duringSaveAs.writes === 2 && duringSaveAs.sameFile && duringSaveAs.marker === '💾 Saved', JSON.stringify(duringSaveAs));
+
+// A write to the file used before that fails late, after the player has moved to another file, neither marks nor warns about the new one
+const lateFail = await ev(`(async () => { ${FH28} try {
+  const h = fakeHandle(herdText(['BM01 Old file']), { delay: 150, failLate: true });
+  applyData(JSON.parse(h.text));
+  storageMode = 'file'; fileHandle = h;
+  if (typeof setUnsavedMarker === 'function') setUnsavedMarker(false);
+  toastEl.textContent = '';
+  writeFile(); await wait(30);
+  fileHandle = fakeHandle('');   // the player has moved to another file meanwhile
+  await wait(400);
+  return { toast: toastEl.textContent, marker: marker(), error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('a save that fails on the file used before neither marks nor warns about the file in use now (#28)', !lateFail.error && !/Save failed/.test(lateFail.toast)
+  && lateFail.marker === '💾 Saved', JSON.stringify(lateFail));
+
+// Browser storage that is full shows the same lasting marker (its toast still shows once per session) until a save fits again
+const browserMarker = await ev(`(async () => { ${FH28} const orig = Storage.prototype.setItem; try {
+  localStorage.clear(); useBrowserStorage();
+  Storage.prototype.setItem = function (k, v) { if (k === KEYS.DATA) throw new DOMException('Storage is full', 'QuotaExceededError'); return orig.call(this, k, v); };
+  addLog('A save that does not fit', 'edit');
+  await wait(1500);
+  const full = marker();
+  Storage.prototype.setItem = orig;
+  addLog('A save that fits', 'edit');
+  return { full, after: marker(), error: '' };
+} catch (e) { return { error: e.message }; } finally { Storage.prototype.setItem = orig; await restore(); } })()`);
+check('full browser storage leaves the same lasting ⚠ Not saved marker until a save fits again (#28)', !browserMarker.error && browserMarker.full === '⚠ Not saved'
+  && browserMarker.after === '💾 Saved', JSON.stringify(browserMarker));
+
+// A file named Mounts.json is refused by its name, also when it is already empty as Chromium leaves a picked file, in Start fresh and
+// Migrate alike, and is never kept as the save file or stored for Continue. Case and trailing dots or spaces (which Windows ignores)
+// make no difference
+const byName = await ev(`(async () => { ${FH28} const out = {}; try {
+  let stored = 0; storeHandleInDB = async () => { stored++; };
+  const before = { mode: storageMode, handle: fileHandle };
+  const emptied = fakeHandle('', { name: 'Mounts.json' });
+  window.showSaveFilePicker = async () => emptied;
+  await createNewFile();
+  out.fresh = { written: emptied.writes.length, toast: toastEl.textContent, adopted: storageMode !== before.mode || fileHandle !== before.handle, stored };
+  localStorage.clear();
+  localStorage.setItem(KEYS.DATA, JSON.stringify({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'F', 'Wild', 'BM01 Browser')] }));
+  const emptied2 = fakeHandle('', { name: 'mounts.JSON. ' });
+  window.showSaveFilePicker = async () => emptied2;
+  await migrateFromLocalStorage();
+  out.migrate = { written: emptied2.writes.length, toast: toastEl.textContent, mode: storageMode, stored,
+    browser: JSON.parse(localStorage.getItem(KEYS.DATA) || '{}').herd?.[0]?.name ?? null };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('a file named Mounts.json (any case, trailing dots or spaces) is refused by its name even when already empty, in Start fresh and Migrate, and never kept or stored (#28)',
+  !byName.error && byName.fresh?.written === 0 && !byName.fresh.adopted && /game save file/.test(byName.fresh.toast) && /emptied/.test(byName.fresh.toast)
+  && byName.migrate?.written === 0 && byName.migrate.mode === 'localStorage' && /game save file/.test(byName.migrate.toast) && byName.migrate.stored === 0
+  && byName.migrate.browser === 'BM01 Browser', JSON.stringify(byName));
+
+// A herd in a file named like the game's Mounts.json (an older version could write one into an emptied Mounts.json) opens read-only:
+// it shows, a message points to Save as new file, and nothing is written there, also not the update the load itself would save
+const gameNamed = await ev(`(async () => { ${FH28} const out = {}; try {
+  const text = herdText(['BM01 Rescued']);
+  const h = fakeHandle(text, { name: 'Mounts.json' });
+  await openWith(h);
+  out.open = { herd: animals.map(a => a.name).join(), mode: storageMode, sameFile: fileHandle === h, toast: toastEl.textContent, links: toastLinks(), written: h.writes.length };
+  animals[0].nickname = 'Not written to Mounts.json'; save(); await wait(600);
+  out.edit = { written: h.writes.length, same: h.text === text, marker: marker() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('a herd in a file named Mounts.json opens read-only, points to Save as new file, and nothing is written there (#28)', !gameNamed.error
+  && gameNamed.open?.herd === 'BM01 Rescued' && gameNamed.open.sameFile && /read-only/.test(gameNamed.open.toast) && /Mounts\.json/.test(gameNamed.open.toast)
+  && JSON.stringify(gameNamed.open.links) === '["Save as new file"]' && gameNamed.open.written === 0 && gameNamed.edit?.written === 0 && gameNamed.edit.same
+  && gameNamed.edit.marker === '⚠ Not saved', JSON.stringify(gameNamed));
+
+// For browsers that do not empty a picked file: Start fresh does not take a file that still holds a game Mounts file under another
+// name, or a herd (it points to Open). A new, empty file is still written and used
+const freshGuard = await ev(`(async () => { ${FH28} const out = {}; try {
+  const before = { mode: storageMode, handle: fileHandle };
+  let stored = 0; storeHandleInDB = async () => { stored++; };
+  const mounts = fakeHandle(${JSON.stringify(MOUNTS)}, { name: 'mounts-copy.json' });
+  window.showSaveFilePicker = async () => mounts;
+  await createNewFile();
+  out.mounts = { written: mounts.writes.length, same: mounts.text === ${JSON.stringify(MOUNTS)}, toast: toastEl.textContent,
+    adopted: storageMode !== before.mode || fileHandle !== before.handle, stored };
+  const herd = herdText(['BM01 Keep me']), existing = fakeHandle(herd);
+  window.showSaveFilePicker = async () => existing;
+  await createNewFile();
+  out.herd = { written: existing.writes.length, same: existing.text === herd, toast: toastEl.textContent, adopted: storageMode !== before.mode || fileHandle !== before.handle, stored };
+  const empty = fakeHandle('');
+  window.showSaveFilePicker = async () => empty;
+  await createNewFile();
+  out.empty = { written: empty.writes.length, used: fileHandle === empty && storageMode === 'file', stored };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+const fm = freshGuard.mounts, fh = freshGuard.herd;
+check('Start fresh does not take a picked file that still holds a game Mounts file under another name (browsers that do not empty it) (#28)', !!fm
+  && fm.written === 0 && fm.same && /Mounts file/.test(fm.toast) && !fm.adopted && fm.stored === 0, JSON.stringify(freshGuard));
+check('Start fresh does not write over a picked file that still holds a herd (browsers that do not empty it) and points to Open; a new, empty file is still used (#28)',
+  !freshGuard.error && !!fh && fh.written === 0 && fh.same && /already holds a herd/.test(fh.toast) && /Open existing data file/.test(fh.toast) && !fh.adopted
+  && fh.stored === 0 && freshGuard.empty?.written >= 1 && freshGuard.empty.used && freshGuard.empty.stored === 1, JSON.stringify(freshGuard));
+
+// For browsers that do not empty a picked file: Migrate does not write into a file that still holds a game Mounts file, also one
+// crafted to hold a herd list as well (the Mounts test comes first, so it fails closed), and the browser data stays
+const migrateGuard = await ev(`(async () => { ${FH28} const out = {}; try {
+  const browserData = JSON.stringify({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'F', 'Wild', 'BM01 Browser')] });
+  const browserHerd = () => JSON.parse(localStorage.getItem(KEYS.DATA) || '{}').herd?.[0]?.name ?? null;
+  localStorage.clear(); localStorage.setItem(KEYS.DATA, browserData);
+  const mounts = fakeHandle(${JSON.stringify(MOUNTS)}, { name: 'mounts-copy.json' });
+  window.showSaveFilePicker = async () => mounts;
+  await migrateFromLocalStorage();
+  out.mounts = { written: mounts.writes.length, same: mounts.text === ${JSON.stringify(MOUNTS)}, toast: toastEl.textContent, mode: storageMode, browser: browserHerd() };
+  await restore();
+  localStorage.clear(); localStorage.setItem(KEYS.DATA, browserData);
+  const craftedText = JSON.stringify({ version: DATA_VERSION, herd: [], SavedMounts: [] }), crafted = fakeHandle(craftedText, { name: 'crafted.json' });
+  window.showSaveFilePicker = async () => crafted;
+  await migrateFromLocalStorage();
+  out.crafted = { written: crafted.writes.length, same: crafted.text === craftedText, toast: toastEl.textContent, mode: storageMode, browser: browserHerd() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+const mg = migrateGuard;
+check('Migrate does not write into a picked file that still holds a game Mounts file, also one with a herd list as well (browsers that do not empty it); the browser data stays (#28)',
+  !mg.error && mg.mounts?.written === 0 && mg.mounts.same && /Mounts file/.test(mg.mounts.toast) && mg.mounts.mode === 'localStorage' && mg.mounts.browser === 'BM01 Browser'
+  && mg.crafted?.written === 0 && mg.crafted.same && /Mounts file/.test(mg.crafted.toast) && mg.crafted.mode === 'localStorage' && mg.crafted.browser === 'BM01 Browser',
+  JSON.stringify(mg));
+
+// For browsers that do not empty a picked file: Migrate and Save as new file do not write over a herd file from a newer data version
+const newerTarget = await ev(`(async () => { ${FH28} const out = {}; try {
+  const text9 = JSON.stringify({ version: 9, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Future')] });
+  localStorage.clear(); localStorage.setItem(KEYS.DATA, JSON.stringify({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'F', 'Wild', 'BM01 Browser')] }));
+  const t1 = fakeHandle(text9, { name: 'newer.json' });
+  window.showSaveFilePicker = async () => t1;
+  await migrateFromLocalStorage();
+  out.migrate = { written: t1.writes.length, same: t1.text === text9, toast: toastEl.textContent, mode: storageMode };
+  await restore();
+  const h = fakeHandle(herdText(['BM01 Mine']));
+  await openWith(h);
+  const t2 = fakeHandle(text9, { name: 'newer.json' });
+  window.showSaveFilePicker = async () => t2;
+  await saveAsNewFile(); await wait(100);
+  out.saveAs = { written: t2.writes.length, same: t2.text === text9, toast: toastEl.textContent, sameFile: fileHandle === h };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('Migrate and Save as new file do not write over a picked herd file from a newer data version that still holds its data (#28)', !newerTarget.error
+  && newerTarget.migrate?.written === 0 && newerTarget.migrate.same && /newer version/.test(newerTarget.migrate.toast) && newerTarget.migrate.mode === 'localStorage'
+  && newerTarget.saveAs?.written === 0 && newerTarget.saveAs.same && /newer version/.test(newerTarget.saveAs.toast) && newerTarget.saveAs.sameFile, JSON.stringify(newerTarget));
+
+// Cancelling the file dialog of Migrate empties memory again, so Start fresh after it writes an empty herd, not the browser data
+const cancelThenFresh = await ev(`(async () => { ${FH28} try {
+  localStorage.clear();
+  localStorage.setItem(KEYS.DATA, JSON.stringify({ version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'F', 'Wild', 'BM01 Browser')] }));
+  window.showSaveFilePicker = async () => { throw new DOMException('cancelled', 'AbortError'); };
+  await migrateFromLocalStorage();
+  const fresh = fakeHandle('');
+  window.showSaveFilePicker = async () => fresh;
+  await createNewFile();
+  const f = JSON.parse(fresh.writes[0] || '{}');
+  return { written: fresh.writes.length, herd: (f.herd || []).map(a => a.name), browser: JSON.parse(localStorage.getItem(KEYS.DATA) || '{}').herd?.[0]?.name ?? null, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('after Migrate is cancelled in the file dialog, Start fresh writes an empty herd, and the browser data stays (#28)', !cancelThenFresh.error
+  && cancelThenFresh.written >= 1 && cancelThenFresh.herd.length === 0 && cancelThenFresh.browser === 'BM01 Browser', JSON.stringify(cancelThenFresh));
+
+// A file from a newer data version (9 here) opens read-only: it is shown, a message says why, nothing is saved back to it as version 8,
+// and Save as new file is the way to keep changes
+const newer = await ev(`(async () => { ${FH28} const out = {}; try {
+  const text9 = JSON.stringify({ version: 9, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Future')], fieldFromTheFuture: { kept: true } });
+  const h = fakeHandle(text9);
+  await openWith(h);
+  out.open = { herd: animals.map(a => a.name).join(), toast: toastEl.textContent, links: toastLinks(), written: h.writes.length };
+  animals[0].nickname = 'Changed in read-only'; save(); await wait(600);
+  out.edit = { written: h.writes.length, same: h.text === text9, marker: marker(), memory: animals[0].nickname };
+  const h2 = fakeHandle(''); window.showSaveFilePicker = async () => h2;
+  clickToast('Save as new file'); await wait(150);
+  const f2 = JSON.parse(h2.text || '{}');
+  animals[0].nickname = 'Saved in the new file'; save(); await wait(600);
+  out.saveAs = { version: f2.version, nickname: f2.herd?.[0]?.nickname, sameFile: fileHandle === h2, next: JSON.parse(h2.text || '{}').herd?.[0]?.nickname,
+    newerKept: h.text === text9, marker: marker() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('a file from a newer data version opens read-only: its herd shows, a message says so, and nothing is saved back to it (#28)', newer.open?.herd === 'BM01 Future'
+  && /newer version/.test(newer.open.toast) && /data version 9/.test(newer.open.toast) && newer.open.written === 0 && newer.edit?.written === 0 && newer.edit.same
+  && newer.edit.marker === '⚠ Not saved' && newer.edit.memory === 'Changed in read-only', JSON.stringify(newer));
+check('Save as new file from a read-only file writes the current data version there and saves there from then on; the newer file stays as it was (#28)',
+  !newer.error && newer.saveAs?.version === 8 && newer.saveAs.nickname === 'Changed in read-only' && newer.saveAs.sameFile && newer.saveAs.next === 'Saved in the new file'
+  && newer.saveAs.newerKept && newer.saveAs.marker === '💾 Saved', JSON.stringify(newer));
+
+// A file from an older data version is updated and saved as before, and the message offers the original as it was; the download
+// still gives the original after the update has been saved over the file
+const older = await ev(`(async () => { ${FH28} const out = {}; const B = window.Blob, click = HTMLAnchorElement.prototype.click; try {
+  const text7 = JSON.stringify({ version: 7, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Old')], logEntries: [{ ts: 1, msg: 'O&#39;Hara added', type: 'add' }] }, null, 1);
+  const h = fakeHandle(text7);
+  window.showOpenFilePicker = async () => [h]; await openExistingFile();
+  out.offer = { toast: toastEl.textContent, links: toastLinks() };
+  await wait(600);
+  out.updated = JSON.parse(h.text).version;
+  let blobText = null, name = null;
+  window.Blob = function (p, o) { blobText = p.join(''); return new B(p, o); }; HTMLAnchorElement.prototype.click = function () { name = this.download; };
+  clickToast('Download original');
+  out.download = { name, exact: blobText === text7 };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; await restore(); } })()`);
+check('a file from an older data version is still updated, and the message offers the original as it was, saved unchanged as herd_data-v7-backup.json (#28)',
+  !older.error && /older version/.test(older.offer?.toast) && JSON.stringify(older.offer.links) === '["Download original"]' && older.updated === 8
+  && older.download?.name === 'herd_data-v7-backup.json' && older.download.exact, JSON.stringify(older));
+
+// A crafted version number is shown, and names the backup file, as a whole number in 0..9999. A version too large for a number
+// (1e400 reads as Infinity) is still newer, so the file opens read-only
+const odd = await ev(`(async () => { ${FH28} const out = {}; const B = window.Blob, click = HTMLAnchorElement.prototype.click; try {
+  const huge = '{"version":1e400,"herd":[' + JSON.stringify(mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Huge')) + ']}';
+  const h = fakeHandle(huge);
+  await openWith(h);
+  out.huge = { toast: toastEl.textContent, written: h.writes.length };
+  animals[0].nickname = 'Not saved back'; save(); await wait(600);
+  out.huge.afterEdit = h.writes.length;
+  await restore();
+  const h2 = fakeHandle(JSON.stringify({ version: 6.7, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Fraction')] }));
+  window.showOpenFilePicker = async () => [h2]; await openExistingFile();
+  out.fraction = { toast: toastEl.textContent };
+  let name = null;
+  window.Blob = function (p, o) { return new B(p, o); }; HTMLAnchorElement.prototype.click = function () { name = this.download; };
+  clickToast('Download original');
+  out.fraction.name = name;
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; await restore(); } })()`);
+check('a crafted data version shows as a whole number in 0..9999 in messages and the backup name, and 1e400 still opens read-only (#28)', !odd.error
+  && /data version 9999\b/.test(odd.huge?.toast) && odd.huge.written === 0 && odd.huge.afterEdit === 0 && /data version 6\b/.test(odd.fraction?.toast)
+  && odd.fraction.name === 'herd_data-v6-backup.json', JSON.stringify(odd));
+
+// A file that fails to load partway (a stand-in applyData takes it in and then throws) leaves memory as it was, through Open and Continue alike
+const rejected = await ev(`(async () => { ${FH28} const apply = applyData, stored = window._storedHandle, cont = document.getElementById('startup-continue').style.display; try {
+  applyData(JSON.parse(herdText(['BM01 Before', 'BM02 Before'])));
+  const state = () => ({ herd: animals.map(a => a.name).join(), mode: storageMode, noFile: fileHandle === null });
+  const before = state();
+  applyData = d => { apply(d); if (d?.herd?.[0]?.name === 'BM01 Rejected') throw new TypeError('stand-in: this file cannot be loaded'); };
+  const bad = fakeHandle(herdText(['BM01 Rejected']));
+  window.showOpenFilePicker = async () => [bad]; await openExistingFile();
+  const afterOpen = state();
+  window._storedHandle = bad; await continueWithStoredFile();
+  const afterContinue = state();
+  return { before, afterOpen, afterContinue, written: bad.writes.length, error: '' };
+} catch (e) { return { error: e.message }; } finally { applyData = apply; window._storedHandle = stored; document.getElementById('startup-continue').style.display = cont; await restore(); } })()`);
+check('a file that fails to load leaves memory as it was, through Open existing data file and Continue alike (#28)', !rejected.error
+  && JSON.stringify(rejected.afterOpen) === JSON.stringify(rejected.before) && JSON.stringify(rejected.afterContinue) === JSON.stringify(rejected.before)
+  && rejected.before.herd === 'BM01 Before,BM02 Before' && rejected.written === 0, JSON.stringify(rejected));
+
+// ── Recovery copy: file storage keeps the herd in browser storage when the page goes away with a save not done ──────────
+// The stand-in's write fails where a check needs the change not to reach the file, as when Chrome ends the page mid-write
+const RK = 'icarus_recovery_v1';
+const byteLen = 'new TextEncoder().encode(h.text).length';
+
+// pagehide with a save not done writes the copy with the file's name and the stamp this tab knows; browser storage never writes
+// the key, and a copy stored there is not read as browser data
+const recWrite = await ev(`(async () => { ${FH28} const out = {}; try {
+  localStorage.removeItem('${RK}');
+  const h = fakeHandle(herdText(['BM01 Pending']));
+  await openWith(h);
+  h.failWrite = true;
+  animals[0].nickname = 'Pending at close'; save();
+  const expected = [h.lastModified, ${byteLen}];
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  const rec = JSON.parse(localStorage.getItem('${RK}') || 'null');
+  out.file = { name: rec?.name ?? null, stamp: rec ? [rec.lastModified, rec.size] : null, expected, nickname: rec?.data?.herd?.[0]?.nickname ?? null, savedAt: typeof rec?.savedAt,
+    ownTab: typeof _tabId === 'string' && _tabId.length > 0 && rec?.tabId === _tabId };
+  await wait(100); await restore();
+  useBrowserStorage();
+  addLog('A change in browser storage', 'edit');
+  if (typeof setUnsavedMarker === 'function') setUnsavedMarker(true);
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  out.browser = { written: localStorage.getItem('${RK}') !== null };
+  if (typeof setUnsavedMarker === 'function') setUnsavedMarker(false);
+  localStorage.clear();
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'synthetic.json', data: { version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 Only in the copy')] } }));
+  out.browser.offered = browserDataToMigrate();
+  useBrowserStorage();
+  out.browser.herd = animals.length;
+  out.browser.kept = localStorage.getItem('${RK}') !== null;
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('pagehide with a file save not done writes a recovery copy with the file\'s name, stamp and this page load\'s id; browser storage never writes or reads it (#28)',
+  !recWrite.error && recWrite.file?.name === 'synthetic.json' && JSON.stringify(recWrite.file.stamp) === JSON.stringify(recWrite.file.expected)
+  && recWrite.file.nickname === 'Pending at close' && recWrite.file.savedAt === 'number' && recWrite.file.ownTab && recWrite.browser?.written === false
+  && recWrite.browser.offered === false && recWrite.browser.herd === 0 && recWrite.browser.kept, JSON.stringify(recWrite));
+
+// A successful save removes only the recovery copy this page load left behind for the file as it had it (same name and stamp). A
+// copy of another file stays, also one with the same name (a herd_data.json elsewhere: another stamp)
+const recClear = await ev(`(async () => { ${FH28} try {
+  const own = typeof _tabId === 'string' ? _tabId : 'no tab id';
+  const h = fakeHandle(herdText(['BM01 Saved']));
+  applyData(JSON.parse(h.text)); storageMode = 'file'; fileHandle = h;
+  await writeFile(); await wait(50);   // the file as this tab has it now: its time and size
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'other.json', lastModified: h.lastModified, size: ${byteLen}, tabId: own, data: {} }));
+  animals[0].nickname = 'Save 2'; await writeFile(); await wait(50);
+  const otherKept = localStorage.getItem('${RK}') !== null;
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'synthetic.json', lastModified: 777, size: 5, tabId: own, data: {} }));
+  animals[0].nickname = 'Save 3'; await writeFile(); await wait(50);
+  const sameNameKept = localStorage.getItem('${RK}') !== null;
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'synthetic.json', lastModified: h.lastModified, size: ${byteLen}, tabId: own, data: {} }));
+  animals[0].nickname = 'Save 4'; await writeFile(); await wait(50);
+  return { otherKept, sameNameKept, removed: localStorage.getItem('${RK}') === null, written: h.writes.length, error: '' };
+} catch (e) { return { error: e.message }; } finally { await restore(); } })()`);
+check('a successful save removes the recovery copy this tab left behind for the file as it had it, and keeps a copy of another file, also one with the same name (#28)',
+  !recClear.error && recClear.otherKept && recClear.sameNameKept && recClear.removed && recClear.written === 4, JSON.stringify(recClear));
+
+// A copy another tab left behind for this very file (same name and stamp, another page load's id) survives this tab's save and its
+// pagehide; only this tab's own copy is removed by its save
+const recOtherTab = await ev(`(async () => { ${FH28} const out = {}; try {
+  const own = typeof _tabId === 'string' ? _tabId : 'no tab id';
+  const h = fakeHandle(herdText(['BM01 Two tabs']));
+  await openWith(h);
+  const theirs = JSON.stringify({ name: 'synthetic.json', lastModified: h.lastModified, size: ${byteLen}, savedAt: 1, tabId: 'another-tab',
+    data: JSON.parse(herdText(['BM01 From the other tab'])) });
+  localStorage.setItem('${RK}', theirs);
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Saved here'; save(); await wait(600);
+  out.save = { written: h.writes.length - n0, kept: localStorage.getItem('${RK}') === theirs };
+  h.failWrite = true;
+  animals[0].nickname = 'Not saved here'; save();
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  out.pagehideKept = localStorage.getItem('${RK}') === theirs;
+  await wait(100); h.failWrite = false;
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'synthetic.json', lastModified: h.lastModified, size: ${byteLen}, savedAt: 2, tabId: own, data: {} }));
+  animals[0].nickname = 'Saved again'; save(); await wait(600);
+  out.ownRemoved = localStorage.getItem('${RK}') === null;
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('a recovery copy another tab left with the same stamp survives a save and a pagehide from this tab; this tab\'s own copy is removed by its save (#28)',
+  !recOtherTab.error && recOtherTab.save?.written === 1 && recOtherTab.save.kept && recOtherTab.pagehideKept && recOtherTab.ownRemoved, JSON.stringify(recOtherTab));
+
+// An offered copy stays while its question is unanswered: through this tab's saves and its pagehide. Only Restore, Discard or
+// Clear All Data remove it; here Discard, offered again by Reload from file
+const recOffered = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(herdText(['BM01 Offered']));
+  const copy = JSON.stringify({ name: 'synthetic.json', lastModified: h.lastModified, size: ${byteLen}, savedAt: 1, tabId: 'earlier-session',
+    data: JSON.parse(herdText(['BM01 From the copy'])) });
+  localStorage.setItem('${RK}', copy);
+  window.showOpenFilePicker = async () => [h]; await openExistingFile();
+  out.links = toastLinks();
+  const n0 = h.writes.length;
+  animals[0].nickname = 'Edited, question unanswered'; save(); await wait(600);
+  out.save = { written: h.writes.length - n0, kept: localStorage.getItem('${RK}') === copy };
+  h.failWrite = true;
+  animals[0].nickname = 'Not saved'; save();
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  out.pagehideKept = localStorage.getItem('${RK}') === copy;
+  await wait(100); h.failWrite = false;
+  await reloadFromFile(); await wait(100);
+  out.again = toastLinks();
+  clickToast('Discard');
+  out.gone = localStorage.getItem('${RK}') === null;
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('an offered recovery copy stays through this tab\'s saves and its pagehide until it is discarded (#28)', !recOffered.error
+  && JSON.stringify(recOffered.links) === '["Restore","Discard"]' && recOffered.save?.written === 1 && recOffered.save.kept && recOffered.pagehideKept
+  && JSON.stringify(recOffered.again) === '["Download","Discard"]' && recOffered.gone, JSON.stringify(recOffered));
+
+// pagehide does not overwrite an older copy of another file (another stamp) that was not offered in this session; with no copy
+// stored, it writes this tab's
+const recKeepOlder = await ev(`(async () => { ${FH28} const out = {}; try {
+  const older = JSON.stringify({ name: 'synthetic.json', lastModified: 777, size: 5, savedAt: 1, data: JSON.parse(herdText(['BM01 Older copy'])) });
+  const h = fakeHandle(herdText(['BM01 This tab']));
+  await openWith(h);
+  localStorage.setItem('${RK}', older);   // another tab, on a herd_data.json elsewhere, closed with changes not saved
+  h.failWrite = true;
+  animals[0].nickname = 'Not saved here'; save();
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  out.kept = localStorage.getItem('${RK}') === older;
+  await wait(100);
+  localStorage.removeItem('${RK}');
+  animals[0].nickname = 'Not saved here either'; save();
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  out.written = JSON.parse(localStorage.getItem('${RK}') || '{}').data?.herd?.[0]?.nickname ?? null;
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('pagehide keeps an older unanswered recovery copy of another file instead of overwriting it, and writes its own when none is stored (#28)',
+  !recKeepOlder.error && recKeepOlder.kept && recKeepOlder.written === 'Not saved here either', JSON.stringify(recKeepOlder));
+
+// The question about a recovery copy stays: the save the load itself asked for is held back (a read-only file would refuse it and
+// a failing disk fail it, each with a message of its own). Discard then saves what the load would have saved
+const recStays = await ev(`(async () => { ${FH28} const out = {}; try {
+  const copyFor = h => JSON.stringify({ name: h.name, lastModified: h.lastModified, size: ${byteLen}, savedAt: 1,
+    data: { version: DATA_VERSION, herd: [mk(1, 1, 'Moa', 'M', 'Wild', 'BM01 From the copy')] } });
+  const open700 = async h => { localStorage.setItem('${RK}', copyFor(h)); window.showOpenFilePicker = async () => [h]; await openExistingFile(); await wait(700);
+    return { links: toastLinks(), written: h.writes.length }; };
+  // A text ID makes the load change the data, so it asks for a save
+  out.readOnly = await open700(fakeHandle(JSON.stringify({ version: 9, herd: [mk('x', 1, 'Moa', 'M', 'Wild', 'BM01 Newer')] })));
+  await restore();
+  const failing = fakeHandle(JSON.stringify({ version: 7, herd: [mk('x', 1, 'Moa', 'M', 'Wild', 'BM01 Failing disk')] }));
+  failing.failWrite = true;
+  out.failing = await open700(failing);
+  await restore();
+  const older = fakeHandle(JSON.stringify({ version: 7, herd: [mk('x', 1, 'Moa', 'M', 'Wild', 'BM01 Older file')] }));
+  out.discard = await open700(older);
+  clickToast('Discard'); await wait(600);
+  out.discard.after = { gone: localStorage.getItem('${RK}') === null, written: older.writes.length, version: JSON.parse(older.text).version };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('the question about a recovery copy is still showing 700 ms after opening a read-only file or one on a failing disk, and Discard saves what the load held back (#28)',
+  !recStays.error && JSON.stringify(recStays.readOnly?.links) === '["Restore","Discard"]' && recStays.readOnly.written === 0
+  && JSON.stringify(recStays.failing?.links) === '["Restore","Discard"]' && JSON.stringify(recStays.discard?.links) === '["Restore","Discard"]'
+  && recStays.discard.written === 0 && recStays.discard.after?.gone && recStays.discard.after.written === 1 && recStays.discard.after.version === 8, JSON.stringify(recStays));
+
+// Clear All Data removes a stored recovery copy too
+const recClearAll = await ev(`(() => { try {
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'synthetic.json', lastModified: 1, size: 1, savedAt: 1, data: { version: 8, herd: [] } }));
+  showTab('settings'); const cb = document.getElementById('clear-confirm-checkbox'); cb.checked = true; updateClearBtn();
+  document.getElementById('clear-all-btn').click(); showTab('herd');
+  return { gone: localStorage.getItem('${RK}') === null, error: '' };
+} catch (e) { return { error: e.message }; } })()`);
+check('Clear All Data removes a stored recovery copy (#28)', !recClearAll.error && recClearAll.gone, JSON.stringify(recClearAll));
+
+// A copy whose file has changed since (its stamp differs) is never applied: Download gives it as herd_data-recovery.json, Discard removes it
+const recChanged = await ev(`(async () => { ${FH28} const out = {}; const B = window.Blob, click = HTMLAnchorElement.prototype.click; try {
+  localStorage.setItem('${RK}', JSON.stringify({ name: 'synthetic.json', lastModified: 4242, size: 10, savedAt: 1, data: JSON.parse(herdText(['BM01 In the copy'])) }));
+  const h = fakeHandle(herdText(['BM01 Saved by someone else']));
+  await openWith(h);
+  out.offer = { toast: toastEl.textContent, links: toastLinks(), herd: animals.map(a => a.name).join() };
+  let blobText = null, name = null;
+  window.Blob = function (p, o) { blobText = p.join(''); return new B(p, o); }; HTMLAnchorElement.prototype.click = function () { name = this.download; };
+  clickToast('Download');
+  out.download = { name, herd: JSON.parse(blobText || '{}').herd?.[0]?.name ?? null, kept: localStorage.getItem('${RK}') !== null, links: toastLinks() };
+  clickToast('Discard');
+  out.discard = { gone: localStorage.getItem('${RK}') === null, herd: animals.map(a => a.name).join() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { window.Blob = B; HTMLAnchorElement.prototype.click = click; await restore(); } })()`);
+check('a recovery copy for a file that has changed since offers Download and Discard, never Restore, and is not applied (#28)', !recChanged.error
+  && /changed since/.test(recChanged.offer?.toast) && JSON.stringify(recChanged.offer.links) === '["Download","Discard"]' && recChanged.offer.herd === 'BM01 Saved by someone else'
+  && recChanged.download?.name === 'herd_data-recovery.json' && recChanged.download.herd === 'BM01 In the copy' && recChanged.download.kept
+  && recChanged.discard?.gone && recChanged.discard.herd === 'BM01 Saved by someone else', JSON.stringify(recChanged));
+
+// The copy is stored data and untrusted: one that is no JSON is ignored, and a crafted one goes through the same checks as a file
+const PWN_REC = '<img src=x id=pwnrec onerror="window.__pwnedRec=1">';
+const recCrafted = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(herdText(['BM01 Clean']));
+  localStorage.setItem('${RK}', 'not json {');
+  await openWith(h);
+  out.junk = { links: toastLinks(), herd: animals.map(a => a.name).join() };
+  const pwn = ${JSON.stringify(PWN_REC)};
+  localStorage.setItem('${RK}', '{"name":"synthetic.json","lastModified":' + h.lastModified + ',"size":' + ${byteLen} + ',"data":{"version":8,"__proto__":{"polluted":1},'
+    + '"herd":[{"id":1,"spId":1,"sp":"Moa","sex":"X","bl":"__proto__","ph":' + JSON.stringify(pwn) + ',"name":' + JSON.stringify(pwn)
+    + ',"stats":{"VIG":{"toString":1},"FIT":[9]},"status":"bogus","notes":{"toString":1}}],"pairs":{"Moa":5},"goals":{"__proto__":{"x":1},"Moa":7}}}');
+  await openWith(h);
+  out.offer = { links: toastLinks() };
+  clickToast('Restore'); await wait(600);
+  showTab('herd'); setFilter('status', 'all', null); renderHerd();
+  const a = animals[0];
+  out.restored = { polluted: ({}).polluted === undefined && ({}).x === undefined, pwned: !!(window.__pwnedRec || document.getElementById('pwnrec')),
+    img: !!document.querySelector('#herd-tbody img'), sex: a.sex, bl: a.bl, status: a.status, stats: [a.stats.VIG, a.stats.FIT].join(), notes: a.notes,
+    goalsMoa: typeof goalsMap.Moa === 'object' && !Array.isArray(goalsMap.Moa), saved: JSON.parse(h.text).version };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+const rc = recCrafted.restored;
+check('a recovery copy is untrusted: one that is no JSON is ignored, and a crafted one is restored only through the same checks as a file (#28)', !recCrafted.error
+  && recCrafted.junk?.links.length === 0 && recCrafted.junk.herd === 'BM01 Clean' && JSON.stringify(recCrafted.offer?.links) === '["Restore","Discard"]'
+  && !!rc && rc.polluted && !rc.pwned && !rc.img && rc.sex === '' && rc.bl === '' && rc.status === '?' && rc.stats === '0,0' && rc.notes === '' && rc.goalsMoa
+  && rc.saved === 8, JSON.stringify(recCrafted));
+
+// The next start, for real: the page goes away with a save that never reached the file, the page is loaded again, and opening the
+// same file (unchanged) offers Restore, which brings the change back and saves it
+const recSetup = await ev(`(async () => { ${FH28}
+  localStorage.removeItem('${RK}');
+  const h = fakeHandle(herdText(['BM01 Before close', 'BM02 Before close']));
+  await openWith(h);
+  h.failWrite = true;
+  animals[0].nickname = 'Only in the recovery copy'; save();
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  await wait(100);
+  // Leave quietly: no file storage and no marker, so the reload below asks nothing
+  clearTimeout(_saveTimer); _saveTimer = null; storageMode = 'localStorage'; fileHandle = null;
+  if (typeof setUnsavedMarker === 'function') setUnsavedMarker(false);
+  return { text: h.text, lastModified: h.lastModified, stored: localStorage.getItem('${RK}') !== null }; })()`);
+await reload();
+const recRestore = await ev(`(async () => { ${FH28} const out = {}; try {
+  const h = fakeHandle(${JSON.stringify(recSetup.text)}); h.lastModified = ${recSetup.lastModified};
+  await openWith(h);
+  out.offer = { toast: toastEl.textContent, links: toastLinks(), herd: animals.map(a => a.nickname || a.name).join() };
+  const n0 = h.writes.length;
+  clickToast('Restore'); await wait(600);
+  out.restored = { nickname: animals[0].nickname, saved: JSON.parse(h.text).herd[0].nickname, written: h.writes.length - n0,
+    gone: localStorage.getItem('${RK}') === null, marker: marker() };
+  return { ...out, error: '' };
+} catch (e) { return { ...out, error: e.message }; } finally { await restore(); } })()`);
+check('at the next start, an unchanged file with a recovery copy offers Restore, which brings the change back and saves it to the file (#28)', !recRestore.error
+  && recSetup.stored && /Unsaved changes from last time/.test(recRestore.offer?.toast) && JSON.stringify(recRestore.offer.links) === '["Restore","Discard"]'
+  && recRestore.offer.herd === 'BM01 Before close,BM02 Before close' && recRestore.restored?.nickname === 'Only in the recovery copy'
+  && recRestore.restored.saved === 'Only in the recovery copy' && recRestore.restored.written >= 1 && recRestore.restored.gone && recRestore.restored.marker === '💾 Saved',
+  JSON.stringify({ recSetup: { stored: recSetup.stored }, recRestore }));
+await ev(`useBrowserStorage(); true`);
 
 check('no console errors or exceptions', errors.length === 0, errors.slice(0, 5).join(' | '));
 console.log(results.join('\n'));
